@@ -6,7 +6,10 @@
 #include "faces.h"
 #include "sync.h"
 #include "psram_json.h"
+#include "expression_parts.h"
 #include <algorithm>
+#include <new>
+#include <utility>
 #include <LittleFS.h>
 
 bool mountFilesystem() {
@@ -24,12 +27,41 @@ static bool ensureResourcesDirectory() {
     return ok;
 }
 
-// Optimization (O6): these helpers used to cycle the Storage lock (which takes TWO
-// mutexes: Storage + HardwareBus) up to three times per call for exists/open/IO. The
-// I/O phase was always a single hold, so consolidating exists+open into that same hold
-// does not lengthen the longest lock window — it just removes two take/give pairs per
-// call and the exists->open TOCTOU gap. Behavior (return values, atomic rename) is
-// unchanged.
+namespace {
+constexpr size_t STORAGE_IO_CHUNK_BYTES = 2048;
+
+// Filesystem consumers run serially in setup/Core 0's dispatcher. Retain the
+// handle across chunks, but release Storage (and its HardwareBus lock) so the
+// renderer can transmit between flash payload operations. Every filesystem
+// operation, including the final flush/rename, still owns both locks.
+bool writeBytesToFileAtomic(const char* path, const uint8_t* bytes, size_t size) {
+    const String tempPath = String(path) + ".tmp";
+    File file;
+    withStorageLock([&]() {
+        LittleFS.remove(tempPath);
+        file = LittleFS.open(tempPath, "w");
+    });
+    if (!file) return false;
+    size_t accepted = 0;
+    while (accepted < size) {
+        const size_t chunk = std::min(STORAGE_IO_CHUNK_BYTES, size - accepted);
+        size_t written = 0;
+        withStorageLock([&]() { written = file.write(bytes + accepted, chunk); });
+        accepted += written;
+        if (written != chunk) break;
+        if (accepted < size) delay(1);
+    }
+    bool committed = false;
+    withStorageLock([&]() {
+        file.flush();
+        file.close();
+        committed = accepted == size && LittleFS.rename(tempPath, path);
+        if (!committed) LittleFS.remove(tempPath);
+    });
+    return committed;
+}
+} // namespace
+
 bool readStringFromFileLocked(const char* path, String& outContent) {
     bool ok = false;
     withStorageLock([&]() {
@@ -46,24 +78,7 @@ bool readStringFromFileLocked(const char* path, String& outContent) {
 }
 
 bool writeStringToFileLocked(const char* path, const String& content) {
-    const String tempPath = String(path) + ".tmp";
-    bool renamed = false;
-    withStorageLock([&]() {
-        LittleFS.remove(tempPath);
-        File file = LittleFS.open(tempPath, "w");
-        if (!file)
-            return;
-        const size_t written = file.print(content);
-        file.flush();
-        file.close();
-        // File::print() may succeed only partially (for example when LittleFS
-        // runs out of space). Never replace the last good file unless every
-        // serialized byte reached the temporary file.
-        renamed = (written == content.length()) && LittleFS.rename(tempPath, path);
-        if (!renamed)
-            LittleFS.remove(tempPath);
-    });
-    return renamed;
+    return writeBytesToFileAtomic(path, reinterpret_cast<const uint8_t*>(content.c_str()), content.length());
 }
 
 namespace {
@@ -90,31 +105,35 @@ void serviceRuntimeSettingsSave() {
 bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) {
     outBuf = nullptr;
     outSize = 0;
+    File file;
     withStorageLock([&]() {
-        if (!LittleFS.exists(path))
-            return;
-        File file = LittleFS.open(path, "r");
-        if (!file)
-            return;
-        outSize = file.size();
-        outBuf = static_cast<char*>(heap_caps_malloc(outSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-        if (!outBuf)
-            outBuf = static_cast<char*>(malloc(outSize + 1));
-        if (outBuf) {
-            size_t got = file.readBytes(outBuf, outSize);
-            if (got != outSize) {
-                free(outBuf);
-                outBuf = nullptr;
-                outSize = 0;
-            } else {
-                outBuf[outSize] = '\0';
-            }
-        }
-        file.close();
+        file = LittleFS.open(path, "r");
+        if (file) outSize = file.size();
     });
-    if (!outBuf)
+    if (!file) return false;
+    // Memory allocation does not need to keep the hardware bus unavailable.
+    SpiRamAllocator allocator;
+    outBuf = static_cast<char*>(allocator.allocate(outSize + 1));
+    size_t got = 0;
+    if (outBuf) {
+        while (got < outSize) {
+            const size_t chunk = std::min(STORAGE_IO_CHUNK_BYTES, outSize - got);
+            size_t read = 0;
+            withStorageLock([&]() { read = file.readBytes(outBuf + got, chunk); });
+            got += read;
+            if (read != chunk) break;
+            if (got < outSize) delay(1);
+        }
+    }
+    withStorageLock([&]() { file.close(); });
+    if (!outBuf || got != outSize) {
+        allocator.deallocate(outBuf);
+        outBuf = nullptr;
         outSize = 0;
-    return outBuf != nullptr;
+        return false;
+    }
+    outBuf[outSize] = '\0';
+    return true;
 }
 
 bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written, String& error) {
@@ -123,18 +142,26 @@ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written
         error = "LittleFS is not mounted";
         return false;
     }
-    String serialized;
     const size_t expected = measureJson(document);
-    const size_t serializedBytes = serializeJson(document, serialized);
-    if (serializedBytes != expected || serialized.length() != expected) {
+    SpiRamAllocator allocator;
+    char* serialized = static_cast<char*>(allocator.allocate(expected + 1));
+    if (!serialized) {
+        error = "failed to allocate JSON serialization buffer";
+        return false;
+    }
+    const size_t serializedBytes = serializeJson(document, serialized, expected + 1);
+    if (serializedBytes != expected) {
+        allocator.deallocate(serialized);
         error = "failed to serialize JSON document";
         return false;
     }
-    if (!writeStringToFileLocked(path, serialized)) {
+    const bool committed = writeBytesToFileAtomic(path, reinterpret_cast<const uint8_t*>(serialized), expected);
+    allocator.deallocate(serialized);
+    if (!committed) {
         error = String("failed to write/commit file: ") + path;
         return false;
     }
-    written = serialized.length();
+    written = expected;
     return true;
 }
 
@@ -240,6 +267,105 @@ static bool readPackedFrameBytes(JsonObject face, uint8_t* out, String& error) {
     return validatePackedFrame(out, error);
 }
 
+static bool composeSavedFaceParts(JsonObject face, uint8_t* out, bool allowUnversioned, String& error) {
+    static_assert(FRAME_BYTES == expression_parts::FRAME_SIZE, "parts catalog frame size mismatch");
+    const bool unversioned = face["partsCatalog"].isNull() && face["partsVersion"].isNull();
+    if (!(allowUnversioned && unversioned) &&
+        (strcmp(face["partsCatalog"] | "", expression_parts::CATALOG) != 0 ||
+         !face["partsVersion"].is<uint16_t>() ||
+         face["partsVersion"].as<uint16_t>() != expression_parts::VERSION)) {
+        error = "unsupported parts catalog/version";
+        return false;
+    }
+    JsonObject call = face["call"].as<JsonObject>();
+    const char* fields[4] = {"leye", "reye", "mouth", "cheek"};
+    uint16_t ids[4];
+    for (uint8_t i = 0; i < 4; ++i) {
+        JsonVariant value = call[fields[i]];
+        if (value.is<const char*>()) {
+            if (!expression_parts::parseId(value.as<const char*>(), ids[i])) {
+                error = String("invalid part ID: ") + fields[i];
+                return false;
+            }
+        } else if (value.is<uint16_t>()) {
+            ids[i] = value.as<uint16_t>();
+        } else {
+            error = String("missing or invalid part ID: ") + fields[i];
+            return false;
+        }
+    }
+    if (!expression_parts::compose(ids, out)) {
+        error = "unknown part ID or incorrect part group";
+        return false;
+    }
+    return true;
+}
+
+bool materializeSavedFace(JsonObject face, uint8_t* out, String& error) {
+    if (!out) {
+        error = "frame output buffer is null";
+        return false;
+    }
+    const char* type = face["type"] | "";
+    if (strcmp(type, "parts") == 0 && face["frameBytes"].isNull())
+        return composeSavedFaceParts(face, out, false, error);
+    if (strcmp(type, "parts") != 0 && strcmp(type, "custom") != 0 && strcmp(type, "default") != 0) {
+        error = "face.type must be default, custom, or parts";
+        return false;
+    }
+    // Old full-frame parts documents may carry stale/unknown metadata. Never
+    // change their visible pixels based solely on that metadata.
+    return readPackedFrameBytes(face, out, error);
+}
+
+bool canonicalizeSavedFaces(JsonVariant document, String& error) {
+    if (!validateSavedFaces(document, error)) return false;
+    for (JsonObject face : document["faces"].as<JsonArray>()) {
+        if (strcmp(face["type"] | "", "parts") != 0) continue;
+        if (face["frameBytes"].isNull()) continue;
+        uint8_t bitmap[FRAME_BYTES], parts[FRAME_BYTES];
+        String partsError;
+        if (!readPackedFrameBytes(face, bitmap, error)) return false;
+        if (composeSavedFaceParts(face, parts, true, partsError) && memcmp(parts, bitmap, FRAME_BYTES) == 0) {
+            // Allocate any missing metadata before removing the authoritative
+            // bitmap so JSON pool exhaustion also leaves an intact record.
+            if (!face["partsCatalog"].set(expression_parts::CATALOG) ||
+                !face["partsVersion"].set(expression_parts::VERSION)) {
+                error = "insufficient JSON capacity for parts metadata";
+                return false;
+            }
+            face.remove("frameBytes");
+        } else {
+            face["type"] = "custom";
+            face.remove("call");
+            face.remove("partsCatalog");
+            face.remove("partsVersion");
+        }
+    }
+    return validateSavedFaces(document, error);
+}
+
+bool expandSavedFacesDocument(JsonVariant document, String& error) {
+    if (!validateSavedFaces(document, error)) return false;
+    for (JsonObject face : document["faces"].as<JsonArray>()) {
+        if (!face["frameBytes"].isNull()) continue;
+        uint8_t frame[FRAME_BYTES];
+        if (!materializeSavedFace(face, frame, error)) return false;
+        JsonArray bytes = face.createNestedArray("frameBytes");
+        if (bytes.isNull()) {
+            error = "insufficient JSON capacity for expanded frameBytes";
+            return false;
+        }
+        for (uint8_t byte : frame) {
+            if (!bytes.add(byte)) {
+                error = "insufficient JSON capacity for expanded frameBytes";
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool validateSavedFaces(JsonVariant document, String& error) {
     const char* category = document["category"] | "";
     if (strcmp(category, "unified_saved_faces") != 0) {
@@ -260,6 +386,7 @@ bool validateSavedFaces(JsonVariant document, String& error) {
     const char* seenIds[MAX_AUTO_FACES] = {};
     uint16_t seenCount = 0;
     uint8_t frame[FRAME_BYTES];
+    size_t expandedBytes = measureJson(document);
     for (JsonObject face : faces) {
         const char* type = face["type"] | "";
         const char* id = face["id"] | "";
@@ -285,13 +412,24 @@ bool validateSavedFaces(JsonVariant document, String& error) {
                 return false;
             }
         }
-        if (!readPackedFrameBytes(face, frame, error)) {
+        if (!materializeSavedFace(face, frame, error)) {
             error = String("invalid face packed frame: ") + error;
             return false;
+        }
+        if (face["frameBytes"].isNull()) {
+            // A comma plus "frameBytes":[...]. Budget the actual decimal
+            // projection as well as canonical disk bytes before any commit.
+            expandedBytes += strlen(",\"frameBytes\":[]") + FRAME_BYTES - 1;
+            for (uint8_t byte : frame)
+                expandedBytes += byte >= 100 ? 3 : (byte >= 10 ? 2 : 1);
         }
     }
     if (defaultCount == 0) {
         error = "saved_faces.json must keep at least one type:\"default\" face";
+        return false;
+    }
+    if (expandedBytes > MAX_FACES_DOCUMENT_BYTES) {
+        error = "expanded saved_faces.json exceeds firmware size limit";
         return false;
     }
     return true;
@@ -304,11 +442,124 @@ static uint32_t g_savedFacesGeneration = 0;
 
 uint32_t savedFacesGeneration() { return g_savedFacesGeneration; }
 
+namespace {
+// Only Core 0 publishes this table. Core 1 renders the separately queued packed
+// frame, so exchanging these owning strings requires no cross-core allocation.
+class PreparedSavedFaces {
+public:
+    ~PreparedSavedFaces() {
+        for (uint16_t i = 0; i < capacity_; ++i) faces_[i].~RuntimeFace();
+        allocator_.deallocate(faces_);
+    }
+
+    bool prepare(JsonVariant document, bool skipInvalid, String& error) {
+        JsonArray source = document["faces"].as<JsonArray>();
+        if (source.isNull() || source.size() > MAX_AUTO_FACES) {
+            error = "missing faces array or too many faces";
+            return false;
+        }
+        capacity_ = static_cast<uint16_t>(source.size());
+        if (!capacity_) {
+            error = "no usable saved faces";
+            return false;
+        }
+        faces_ = static_cast<RuntimeFace*>(allocator_.allocate(sizeof(RuntimeFace) * capacity_));
+        if (!faces_) {
+            capacity_ = 0;
+            error = "failed to allocate prepared saved-face table";
+            return false;
+        }
+        for (uint16_t i = 0; i < capacity_; ++i) new (&faces_[i]) RuntimeFace();
+        const char* startupId = document["startupDefaultId"] | "";
+        uint16_t jsonIndex = 0;
+        for (JsonVariant entry : source) {
+            JsonObject face = entry.as<JsonObject>();
+            uint8_t packed[FRAME_BYTES];
+            String faceError;
+            const char* id = face["id"] | "";
+            bool duplicate = false;
+            for (uint16_t i = 0; i < count_; ++i) duplicate |= faces_[i].id == id;
+            const bool metadataValid = id[0] && !duplicate && face["order"].is<int32_t>() &&
+                face["order"].as<int32_t>() >= 1 &&
+                !(strcmp(face["type"] | "", "default") == 0 && defaultFaceIdNumberIsInvalid(id));
+            if (!metadataValid || !materializeSavedFace(face, packed, faceError)) {
+                if (faceError.isEmpty()) faceError = "invalid face identity/order";
+                if (!skipInvalid) { error = faceError; return false; }
+                Serial.printf("Skipping invalid saved face %u: %s\n", jsonIndex, faceError.c_str());
+                ++jsonIndex;
+                continue;
+            }
+            RuntimeFace& runtime = faces_[count_];
+            const char* name = face["name"] | id;
+            runtime.id = id;
+            runtime.name = name;
+            // Arduino String reports allocation failure by yielding an empty
+            // or unchanged string. Detect that while the old table is intact.
+            if (runtime.id.length() != strlen(id) || runtime.name.length() != strlen(name)) {
+                error = "failed to allocate saved-face identity strings";
+                return false;
+            }
+            memcpy(runtime.frameBits, packed, FRAME_BYTES);
+            runtime.order = face["order"].as<int32_t>();
+            runtime.jsonIndex = jsonIndex++;
+            runtime.isDefault = strcmp(face["type"] | "", "default") == 0;
+            runtime.isStartupDefault = face["is_startup_default"].as<bool>() ||
+                (startupId[0] && strcmp(startupId, id) == 0);
+            ++count_;
+        }
+        if (!count_) {
+            error = "no usable saved faces";
+            return false;
+        }
+        std::sort(faces_, faces_ + count_, [](const RuntimeFace& a, const RuntimeFace& b) {
+            if (a.order != b.order) return a.order < b.order;
+            return a.jsonIndex < b.jsonIndex;
+        });
+        return true;
+    }
+
+    void publish(JsonVariant document, bool applyStartupFace) {
+        const char* startupId = document["startupDefaultId"] | "";
+        const uint16_t previousIndex = runtimeState().autoFaceIndex;
+        const String* previousId = previousIndex < runtimeAutoFaceCount()
+            ? &runtimeAutoFaces()[previousIndex].id : nullptr;
+        int selectedIndex = -1;
+        int firstDefault = -1;
+        for (uint16_t i = 0; i < count_; ++i) {
+            if (faces_[i].isDefault && firstDefault < 0) firstDefault = i;
+            if (selectedIndex < 0 &&
+                ((!applyStartupFace && previousId && *previousId == faces_[i].id) ||
+                 (applyStartupFace && ((startupId[0] && faces_[i].id == startupId) || faces_[i].isStartupDefault))))
+                selectedIndex = i;
+        }
+        if (selectedIndex < 0)
+            selectedIndex = !applyStartupFace && previousIndex < count_ ? previousIndex :
+                (firstDefault >= 0 ? firstDefault : 0);
+        // String moves exchange owned buffers; every potentially failing
+        // allocation happened before the filesystem rename.
+        for (uint16_t i = 0; i < count_; ++i) std::swap(runtimeAutoFaces()[i], faces_[i]);
+        for (uint16_t i = count_; i < runtimeAutoFaceCount(); ++i) runtimeAutoFaces()[i] = RuntimeFace();
+        runtimeAutoFaceCount() = count_;
+        runtimeState().autoFaceIndex = static_cast<uint16_t>(selectedIndex);
+        touchRuntimeState();
+    }
+
+private:
+    SpiRamAllocator allocator_;
+    RuntimeFace* faces_ = nullptr;
+    uint16_t capacity_ = 0;
+    uint16_t count_ = 0;
+};
+} // namespace
+
 size_t writeSavedFaces(JsonVariant document, String& error) {
     if (!runtimeFsMounted()) {
         error = "LittleFS is not mounted";
         return 0;
     }
+    if (!canonicalizeSavedFaces(document, error)) return 0;
+    PreparedSavedFaces prepared;
+    if (!prepared.prepare(document, false, error)) return 0;
     if (!ensureResourcesDirectory()) {
         error = "failed to ensure /resources for saved_faces.json";
         return 0;
@@ -318,8 +569,8 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
         return 0;
     }
     size_t written = 0;
-    if (!writeJsonFileAtomic(SAVED_FACES_PATH, document, written, error))
-        return 0;
+    if (!writeJsonFileAtomic(SAVED_FACES_PATH, document, written, error)) return 0;
+    prepared.publish(document, false);
     ++runtimeState().savedFacesWrites;
     ++g_savedFacesGeneration;
     touchRuntimeState();
@@ -327,79 +578,28 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
 }
 
 bool ensureSavedFacesLoaded() {
-    if (runtimeAutoFaceCount() > 0)
-        return true;
+    if (runtimeAutoFaceCount() > 0) return true;
     return loadSavedFaces(false) && runtimeAutoFaceCount() > 0;
 }
 
 bool installSavedFacesDocument(JsonVariant document, bool applyStartupFace) {
-    const String startupId = document["startupDefaultId"] | "";
-    JsonArray faces = document["faces"].as<JsonArray>();
-    String previousFaceId;
-    const uint16_t previousFaceIndex = runtimeState().autoFaceIndex;
-    if (runtimeAutoFaceCount() > 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount())
-        previousFaceId = runtimeAutoFaces()[runtimeState().autoFaceIndex].id;
-    runtimeAutoFaceCount() = 0;
-    uint16_t jsonIndex = 0;
-
-    for (JsonObject face : faces) {
-        if (runtimeAutoFaceCount() >= MAX_AUTO_FACES)
-            break;
-        uint8_t packed[FRAME_BYTES];
-        String error;
-        if (!readPackedFrameBytes(face, packed, error)) {
-            ++jsonIndex;
-            continue;
-        }
-        RuntimeFace& runtime = runtimeAutoFaces()[runtimeAutoFaceCount()++];
-        runtime.id = String(face["id"] | "");
-        runtime.name = String(face["name"] | runtime.id.c_str());
-        memcpy(runtime.frameBits, packed, FRAME_BYTES);
-        runtime.order = face["order"].is<int32_t>() ? face["order"].as<int32_t>() : static_cast<int32_t>(jsonIndex) + 1;
-        runtime.jsonIndex = jsonIndex;
-        runtime.isDefault = strcmp(face["type"] | "", "default") == 0;
-        runtime.isStartupDefault = face["is_startup_default"].as<bool>() || (!startupId.isEmpty() && startupId == runtime.id);
-        ++jsonIndex;
-    }
-
-    if (runtimeAutoFaceCount() == 0)
+    PreparedSavedFaces prepared;
+    String error;
+    if (!prepared.prepare(document, true, error)) {
+        Serial.printf("Failed to prepare saved faces: %s\n", error.c_str());
         return false;
-    std::sort(runtimeAutoFaces(), runtimeAutoFaces() + runtimeAutoFaceCount(), [](const RuntimeFace& a, const RuntimeFace& b) {
-        if (a.order != b.order)
-            return a.order < b.order;
-        return a.jsonIndex < b.jsonIndex;
-    });
-
-    int selectedIndex = -1;
-    int firstDefaultIndex = -1;
-    for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
-        if (runtimeAutoFaces()[i].isDefault && firstDefaultIndex < 0)
-            firstDefaultIndex = i;
-        if (selectedIndex < 0) {
-            if (!applyStartupFace && !previousFaceId.isEmpty() && previousFaceId == runtimeAutoFaces()[i].id)
-                selectedIndex = i;
-            else if (applyStartupFace && ((!startupId.isEmpty() && startupId == runtimeAutoFaces()[i].id) || runtimeAutoFaces()[i].isStartupDefault))
-                selectedIndex = i;
-        }
     }
-    if (selectedIndex < 0)
-        selectedIndex = (!applyStartupFace && previousFaceIndex < runtimeAutoFaceCount()) ? previousFaceIndex : (firstDefaultIndex >= 0 ? firstDefaultIndex : 0);
-    runtimeState().autoFaceIndex = static_cast<uint16_t>(selectedIndex);
-    touchRuntimeState();
+    prepared.publish(document, applyStartupFace);
     Serial.printf("Loaded %u saved faces for firmware auto mode\n", runtimeAutoFaceCount());
-
     if (applyStartupFace) {
-        String error;
         runtimeState().brightness = DEFAULT_BRIGHTNESS;
         runtimeState().playback = isAutoMode() ? "auto_saved_face" : DEFAULT_PLAYBACK;
-        if (isAutoMode())
-            runtimeState().lastAutoSwitchMs = millis();
+        if (isAutoMode()) runtimeState().lastAutoSwitchMs = millis();
         runtimeState().paused = false;
         if (!applyPackedFrameQueued(runtimeAutoFaces()[runtimeState().autoFaceIndex].frameBits, STARTUP_FACE_REASON, error)) {
             Serial.printf("startup packed frame failed: %s\n", error.c_str());
             return false;
         }
-        Serial.printf("Loaded startup face index: %u\n", runtimeState().autoFaceIndex);
     }
     return true;
 }
@@ -413,8 +613,6 @@ bool loadSavedFaces(bool applyStartupFace) {
     char* contentBuf = nullptr;
     if (!readBufferFromFileLocked(SAVED_FACES_PATH, contentBuf, savedFacesSize)) {
         Serial.println("No saved_faces.json or failed to read; LED output starts blank");
-        runtimeAutoFaceCount() = 0;
-        touchRuntimeState();
         return false;
     }
 
@@ -426,8 +624,6 @@ bool loadSavedFaces(bool applyStartupFace) {
     free(contentBuf);
     if (err) {
         Serial.printf("saved_faces.json parse failed: %s\n", err.c_str());
-        runtimeAutoFaceCount() = 0;
-        touchRuntimeState();
         return false;
     }
 

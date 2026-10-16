@@ -9,7 +9,7 @@ import RinaCore
 /// validation.
 @MainActor
 final class FaceLibraryOpsTests: XCTestCase {
-    func testLocalEditOverwritesSameIdAndKeepsCount() async throws {
+    func testEditorRefusesLegacyLocalOverwriteAndKeepsOriginal() async throws {
         let store = OpsTestLocalFaceStore(document: FaceDocument())
         let library = FaceLibraryModel(localStore: store)
         let connection = BoardConnection()
@@ -29,13 +29,13 @@ final class FaceLibraryOpsTests: XCTestCase {
 
         let success = await editor.saveEditedFace(name: "Alpha Edited", asNew: false, to: .local,
                                                   library: library, connection: connection)
-        XCTAssertTrue(success)
-        XCTAssertEqual(library.faces(in: .local).count, countBefore, "Overwriting must not add a new entry")
-        XCTAssertEqual(library.face(id: id, in: .local)?.name, "Alpha Edited")
+        XCTAssertFalse(success)
+        XCTAssertEqual(library.faces(in: .local).count, countBefore)
+        XCTAssertEqual(library.face(id: id, in: .local)?.name, "Alpha")
         XCTAssertEqual(editor.editingFaceId, id)
     }
 
-    func testSaveAsNewSucceedsWithNewIdAndKeepsOriginal() async throws {
+    func testEditorRefusesNewLegacyLocalSaveAndKeepsOriginal() async throws {
         let store = OpsTestLocalFaceStore(document: FaceDocument())
         let library = FaceLibraryModel(localStore: store)
         let connection = BoardConnection()
@@ -51,13 +51,13 @@ final class FaceLibraryOpsTests: XCTestCase {
 
         let success = await editor.saveEditedFace(name: "A Copy", asNew: true, to: .local,
                                                   library: library, connection: connection)
-        XCTAssertTrue(success)
-        XCTAssertNotEqual(editor.editingFaceId, originalID,
-                          "asNew must not replace the id being edited")
+        XCTAssertFalse(success)
+        XCTAssertEqual(editor.editingFaceId, originalID,
+                       "An offline save must keep the original draft target")
         XCTAssertEqual(library.face(id: originalID, in: .local)?.name, "Original",
                        "The face being edited from must survive a save-as-new untouched")
-        let newID = try XCTUnwrap(editor.editingFaceId)
-        XCTAssertEqual(library.face(id: newID, in: .local)?.name, "A Copy")
+        XCTAssertEqual(library.userFaces(in: .local).count, 1)
+        XCTAssertNotNil(library.errorMessage)
     }
 
     func testSaveAsNewFailureLeavesEditingTargetUntouched() async throws {
@@ -439,37 +439,50 @@ final class FaceLibraryOpsTests: XCTestCase {
     /// that rename land, so it is not a foreign edit. The overwrite must
     /// still land the new drawing and the name given to this save.
     func testSaveEditedFaceAfterSameSessionRenameSucceedsWithNewDrawingAndName() async throws {
-        let store = OpsTestLocalFaceStore(document: FaceDocument())
-        let library = FaceLibraryModel(localStore: store)
-        let connection = BoardConnection()
-        await library.loadLocalIfNeeded()
-
-        guard case .saved(let id?) = await library.saveLocal(payload(name: "Alpha", led: 1)),
-              let created = library.face(id: id, in: .local) else {
-            return XCTFail("Expected a locally saved face")
-        }
-
-        let editor = ControlViewModel()
-        editor.loadForEditing(FaceEditRequest(id: 1, face: created, location: .local,
-                                              asCopy: false, boardID: nil, boardGeneration: nil))
-        XCTAssertTrue(editor.canOverwriteEditingFace)
-
-        // Renamed elsewhere in this same session — the editor's own
-        // `editingBaseline` still says "Alpha", untouched by this call.
-        let renamed = await library.rename(created, to: "Alpha Renamed", in: .local, connection: connection)
+        let library = FaceLibraryModel()
+        let (connection, transport) = await connectedBoard()
+        defer { connection.disconnect() }
+        var initial = PackedFrame()
+        initial.set(1)
+        let created = SavedFace(id: "owned-rename", name: "Alpha", type: .custom,
+                                frameBytes: initial.bytes.map(Int.init), order: 1)
+        transport.automaticallyReplies = false
+        transport.resetRecordedFrames()
+        let loading = Task { await library.reload(connection: connection) }
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        transport.replyToNext(type: .getFaces,
+                              payload: genPrefix(5) + (try FaceDocument(faces: [created]).encoded()))
+        let loaded = await loading.value
+        XCTAssertTrue(loaded)
+        let editor = ControlViewModel(draftStorage: DraftStorage(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
+        editor.livePreview = false
+        editor.connectionChanged(generation: connection.connectionGeneration)
+        editor.loadForEditing(FaceEditRequest(id: 1, face: created, location: .board,
+                                              asCopy: false, boardID: connection.boardKey,
+                                              boardGeneration: connection.connectionGeneration))
+        let renaming = Task { await library.rename(created, to: "Alpha Renamed", in: .board, connection: connection) }
+        try await transport.waitForSent(type: .cmd, count: 1)
+        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 6])
+        let renamed = await renaming.value
         XCTAssertTrue(renamed)
-
-        // The user then actually draws something new in the editor.
         editor.toggle(led: 5, connection: connection)
-        XCTAssertTrue(editor.draftFrame[5])
-
-        let success = await editor.saveEditedFace(name: "Alpha Final", asNew: false, to: .local,
-                                                  library: library, connection: connection)
-        XCTAssertTrue(success, "A same-session rename must not be treated as a foreign edit")
-        let stored = library.face(id: id, in: .local)
-        XCTAssertEqual(stored?.name, "Alpha Final", "The stored name must be the one given to this save")
-        XCTAssertEqual(stored?.frameBytes, editor.draftFrame.bytes.map(Int.init),
-                       "The stored frame must be the new drawing, not the pre-edit one")
+        let saving = Task { await editor.saveEditedFace(name: "Alpha Final", asNew: false, to: .board,
+                                                        library: library, connection: connection) }
+        try await transport.waitForSent(type: .cmd, count: 2)
+        let command = try XCTUnwrap(transport.lastSent(type: .cmd))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: command.payload) as? [String: Any])
+        let sent = try XCTUnwrap(object["face"] as? [String: Any])
+        XCTAssertEqual((sent["expect"] as? [String: Any])?["name"] as? String, "Alpha Renamed")
+        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 7])
+        try await transport.waitForSent(type: .getFaces, count: 2)
+        let stored = SavedFace(id: created.id, name: "Alpha Final", type: .custom,
+                               frameBytes: editor.draftFrame.bytes.map(Int.init), order: 1)
+        transport.replyToNext(type: .getFaces,
+                              payload: genPrefix(7) + (try FaceDocument(faces: [stored]).encoded()))
+        let success = await saving.value
+        XCTAssertTrue(success)
+        XCTAssertEqual(library.face(id: created.id, in: .board)?.name, "Alpha Final")
+        XCTAssertEqual(library.face(id: created.id, in: .board)?.packedFrame, editor.draftFrame)
     }
 
     /// The board's reply to a `face_upsert` can be lost after the write

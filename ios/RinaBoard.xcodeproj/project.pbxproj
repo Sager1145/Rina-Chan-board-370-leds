@@ -338,8 +338,14 @@
 			);
 			name = "Build Mac Wi-Fi Bridge";
 			outputPaths = (
-				"$(DERIVED_FILE_DIR)/mac-wifi-bridge",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns",
 				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents/MacOS",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents/_CodeSignature",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents/MacOS/RinaMacWiFiBridge",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents/Info.plist",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents/_CodeSignature/CodeResources",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;

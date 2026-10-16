@@ -1,0 +1,2 @@
+REPRO R2: production sameBoard accepts identical hostname across different generations without physical identity
+REPRO R1: conflict -> Finish retains journal -> next unrelated prepare refused; operation isRunning=false

@@ -2,24 +2,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 import RinaCore
 
-/// Full saved-face management (design guide §11): the complete list with
-/// rename, edit, delete, drag reorder and whole-document import/export.
-///
-/// Two independent libraries — 本机 (device-local) and 当前面板 (the
-/// connected board) — are shown one at a time via a picker; each face row's
-/// caption says whether it is a preset or a user face. Native list semantics
-/// throughout — rows are `List` rows with swipe actions and a context menu,
-/// plus a real `EditButton()`/`EditMode` for reordering and batch delete, not
-/// website-style cards. Presented as a bottom sheet from the Control tab's
-/// 「保存列表」 button (see `ControlView.savedFacesSheet`, which keeps the
-/// glass `.rinaTall` presentation detent for this view).
-///
-/// A row's local management actions (edit, rename, delete, reorder) never
-/// depend on the board connection — only 发送 (apply to the board's display)
-/// does. Editing routes through `FaceLibraryModel.requestEdit`, which
-/// `RootTabView` picks up as `pendingEditRequest` and hands to the Control
-/// tab's editor, so this view never needs a direct `ControlViewModel`
-/// dependency.
+/// The connected board's confirmed saved faces: rename, edit, delete, reorder,
+/// import/export, and an explicit copy flow for preserved legacy local data.
+/// Editing hands a board-scoped snapshot to Control through `requestEdit`.
 struct FaceLibraryView: View {
     @Environment(BoardConnection.self) private var connection
     @Environment(FaceLibraryModel.self) private var model
@@ -33,16 +18,18 @@ struct FaceLibraryView: View {
     @State private var orderDraft: [SavedFace]?
     @State private var orderLocation: FaceLibraryLocation?
     @State private var orderGeneration: UUID?
+    @State private var orderCursor: BoardFaceSaveSource?
     @State private var isWorking = false
     @State private var searchText = ""
-    @State private var pickedLocation: FaceLibraryLocation?
+    @State private var isMigratingLegacy = false
     @State private var renaming: RenameTarget?
     @State private var deletion: DeleteTarget?
     @State private var showDeleteConfirmation = false
     @State private var isExporting = false
     @State private var isImporting = false
-    @State private var importLocation: FaceLibraryLocation = .local
+    @State private var importLocation: FaceLibraryLocation = .board
     @State private var importGeneration: UUID?
+    @State private var importCursor: BoardFaceSaveSource?
     @State private var exportDocument: JSONFileDocument?
     @State private var numbers = FaceNumberRegistry.shared
 
@@ -50,12 +37,14 @@ struct FaceLibraryView: View {
         let face: SavedFace
         let location: FaceLibraryLocation
         let generation: UUID
+        let cursor: BoardFaceSaveSource
         var id: String { "\(location.rawValue):\(face.id)" }
     }
     private struct DeleteTarget {
         let faces: [SavedFace]
         let location: FaceLibraryLocation
         let generation: UUID
+        let cursor: BoardFaceSaveSource
     }
     private struct LoadKey: Equatable {
         let location: FaceLibraryLocation
@@ -66,38 +55,18 @@ struct FaceLibraryView: View {
         let ids: [String]
     }
 
-    /// "Which library is on screen" as one piece of state: `nil` means the
-    /// user hasn't picked yet, so it follows the connection (board while
-    /// connected, local otherwise). Once the user touches the picker their
-    /// choice sticks for the life of the sheet, independent of connection
-    /// changes.
-    private var location: FaceLibraryLocation {
-        pickedLocation ?? (connection.connectionState == .connected ? .board : .local)
-    }
+    /// Formal saved faces always belong to the currently verified board.
+    private var location: FaceLibraryLocation { .board }
     private var isConnected: Bool { connection.connectionState == .connected }
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private var confirmedFaces: [SavedFace] { model.faces(in: location) }
+    private var confirmedFaces: [SavedFace] { libraryReady ? model.faces(in: .board) : [] }
     private var displayedFaces: [SavedFace] { orderDraft ?? confirmedFaces }
-    /// Loading flag for whichever library is on screen — `model.isLoading`
-    /// only tracks the board fetch, so the local branch needs its own flag
-    /// to avoid a spurious "暂无" flash while `loadLocalIfNeeded()` is
-    /// still running.
-    private var isLoading: Bool {
-        location == .local ? (model.isLocalLoading || !model.isLocalLoaded) : model.isLoading
-    }
-    /// Proof (not a guess) that the current library actually finished a
-    /// successful load, so management actions are safe to allow.
+    private var isLoading: Bool { model.isLoading }
     private var libraryReady: Bool {
-        if location == .local { return model.isLocalLoaded }
-        return isConnected && model.boardGeneration == connection.connectionGeneration
+        isConnected && model.boardGeneration == connection.connectionGeneration
     }
-    /// Display-number scope: "local" or the connected board's physical id.
-    /// `nil` when there is no stable board id to scope by — display numbers
-    /// are then simply not allocated or shown for the session (the row still
-    /// shows "顺序 N"), rather than persisting numbers under a
-    /// reconnect-unstable session key.
+    /// Display numbers are scoped to a verified physical board identity.
     private var currentScope: String? {
-        if location == .local { return "local" }
         guard let boardID = model.boardID ?? connection.boardKey else { return nil }
         return "board:\(boardID)"
     }
@@ -114,11 +83,15 @@ struct FaceLibraryView: View {
 
     private var managementMenu: some View {
         Menu {
+            Button("从旧本机库复制…", systemImage: "tray.and.arrow.up") {
+                isMigratingLegacy = true
+            }.disabled(!canManage)
             Button("导出全部", systemImage: "square.and.arrow.up") { exportAll() }
                 .disabled(!libraryReady || confirmedFaces.isEmpty)
             Button("导入表情列表", systemImage: "square.and.arrow.down") {
                 importLocation = location
                 importGeneration = connection.connectionGeneration
+                importCursor = currentCursor
                 isImporting = true
             }.disabled(!canManage)
             Button("刷新", systemImage: "arrow.clockwise") {
@@ -127,11 +100,6 @@ struct FaceLibraryView: View {
                 perform { await refresh(source, connection: link) }
             }
             .disabled(!libraryReady)
-            if location == .local, model.canUndoLocalDelete {
-                Button("撤销删除", systemImage: "arrow.uturn.backward") {
-                    perform { _ = await model.undoLocalDelete() }
-                }
-            }
         } label: { Label("更多", systemImage: "ellipsis.circle") }
         .disabled(isWorking || editMode.isEditing)
     }
@@ -151,12 +119,6 @@ struct FaceLibraryView: View {
                     managementMenu
                 }
             }
-            Picker("库", selection: Binding(get: { location }, set: { pickedLocation = $0 })) {
-                ForEach(FaceLibraryLocation.allCases) { Text($0.title).tag($0) }
-            }
-            .rinaSegmentedRow()
-            .disabled(editMode.isEditing || isWorking)
-            .listRowSeparator(.hidden)
 
             if let message = model.errorMessage {
                 Section { Text(message).foregroundStyle(.red) }
@@ -168,7 +130,7 @@ struct FaceLibraryView: View {
                 Text("搜索结果不能排序；请先清除搜索")
                     .font(.footnote).foregroundStyle(.secondary)
             }
-            if visible.isEmpty && !isLoading {
+            if visible.isEmpty && !isLoading && model.errorMessage == nil {
                 Text(isSearching ? "没有匹配的表情" : "暂无")
                     .foregroundStyle(.secondary)
             }
@@ -194,7 +156,7 @@ struct FaceLibraryView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("表情库")
+        .navigationTitle("板上表情")
         .navigationBarTitleDisplayMode(.inline)
         .modifier(FaceLibrarySearchPlacement(text: $searchText, inMenu: keepsActionsInMenu))
         .toolbar {
@@ -211,6 +173,7 @@ struct FaceLibraryView: View {
                 orderDraft = confirmedFaces
                 orderLocation = location
                 orderGeneration = connection.connectionGeneration
+                orderCursor = currentCursor
             } else if old.isEditing && !new.isEditing {
                 commitOrder()
             }
@@ -233,11 +196,15 @@ struct FaceLibraryView: View {
             model.errorMessage = nil
         }
         .task(id: LoadKey(location: location, generation: connection.connectionGeneration)) {
-            if location == .local {
-                await model.loadLocalIfNeeded()
-            } else if isConnected && model.boardGeneration != connection.connectionGeneration {
+            guard isConnected else { dismiss(); return }
+            if model.boardGeneration != connection.connectionGeneration {
                 await model.reload(connection: connection)
             }
+        }
+        .onChange(of: isConnected) { _, connected in if !connected { dismiss() } }
+        .onChange(of: connection.connectionGeneration) { _, _ in dismiss() }
+        .sheet(isPresented: $isMigratingLegacy) {
+            LegacyFaceMigrationView()
         }
         .task(id: NumberingKey(scope: currentScope, ids: confirmedFaces.map(\.id))) {
             if let scope = currentScope {
@@ -255,7 +222,7 @@ struct FaceLibraryView: View {
         .sheet(item: $renaming) { target in
             FaceNameEditorSheet(title: NSLocalizedString("重命名", comment: "rename saved face"),
                                 initialName: model.displayName(for: target.face)) { name in
-                guard valid(target.location, generation: target.generation) else { return changedBoardMessage }
+                guard valid(target.location, generation: target.generation), cursorStillCurrent(target.cursor) else { return changedBoardMessage }
                 isWorking = true
                 defer { isWorking = false }
                 let succeeded = await model.rename(target.face, to: name, in: target.location, connection: connection)
@@ -265,7 +232,7 @@ struct FaceLibraryView: View {
         .confirmationDialog("删除表情？", isPresented: $showDeleteConfirmation,
                             titleVisibility: .visible, presenting: deletion) { target in
             Button("删除", role: .destructive) {
-                guard valid(target.location, generation: target.generation) else {
+                guard valid(target.location, generation: target.generation), cursorStillCurrent(target.cursor) else {
                     model.errorMessage = changedBoardMessage
                     return
                 }
@@ -274,7 +241,10 @@ struct FaceLibraryView: View {
                 // Done never submits a permutation that still names a
                 // just-deleted id.
                 cancelOrder()
-                perform { _ = await model.delete(target.faces, from: target.location, connection: link) }
+                perform {
+                    guard cursorStillCurrent(target.cursor) else { model.errorMessage = changedBoardMessage; return }
+                    _ = await model.delete(target.faces, from: target.location, connection: link)
+                }
             }
             Button("取消", role: .cancel) {}
         } message: { target in
@@ -286,7 +256,7 @@ struct FaceLibraryView: View {
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }
-            guard valid(importLocation, generation: importGeneration) else {
+            guard valid(importLocation, generation: importGeneration), cursorStillCurrent(importCursor) else {
                 model.errorMessage = changedBoardMessage
                 return
             }
@@ -298,7 +268,11 @@ struct FaceLibraryView: View {
             }
             let target = importLocation
             let link = connection
-            perform { await model.importDocument(from: data, to: target, connection: link) }
+            let cursor = importCursor
+            perform {
+                guard cursorStillCurrent(cursor) else { model.errorMessage = changedBoardMessage; return }
+                await model.importDocument(from: data, to: target, connection: link)
+            }
         }
     }
 
@@ -345,8 +319,6 @@ struct FaceLibraryView: View {
                 rowContent
             } else {
                 // The row itself is never disabled as a whole when offline:
-                // local management works without a board. Only 发送 and the
-                // board-only copy action check `isConnected`.
                 rowContent.contextMenu {
                     if model.isProtected(face) {
                         Button("编辑副本", systemImage: "pencil") { edit(face) }
@@ -365,13 +337,6 @@ struct FaceLibraryView: View {
                         let source = location; let link = connection
                         perform { _ = await model.duplicate(face, from: source, connection: link) }
                     }.disabled(!canManage)
-                    if location == .local {
-                        Button("复制到当前面板", systemImage: "arrow.turn.up.right") { copy(face) }
-                            .disabled(!canManage || !isConnected)
-                    } else {
-                        Button("复制到本机", systemImage: "arrow.turn.up.right") { copy(face) }
-                            .disabled(!canManage)
-                    }
                     if model.canDelete(face) {
                         Divider()
                         Button("删除", systemImage: "trash", role: .destructive) { prepareDelete([face]) }
@@ -402,6 +367,14 @@ struct FaceLibraryView: View {
     private var failedMessage: String {
         NSLocalizedString("操作失败，请重试", comment: "saved face operation failed")
     }
+    private var currentCursor: BoardFaceSaveSource {
+        BoardFaceSaveSource(boardID: connection.boardKey, generation: connection.connectionGeneration,
+                            expectedBootId: connection.bootId, expectedGen: connection.currentFacesGeneration)
+    }
+    private func cursorStillCurrent(_ cursor: BoardFaceSaveSource?) -> Bool {
+        guard let cursor else { return false }
+        return cursor == currentCursor
+    }
     private func valid(_ source: FaceLibraryLocation, generation: UUID?) -> Bool {
         source == .local || (isConnected && generation == connection.connectionGeneration
                            && model.boardGeneration == generation)
@@ -427,17 +400,11 @@ struct FaceLibraryView: View {
     }
     private func rename(_ face: SavedFace) {
         guard canManage, !editMode.isEditing, !model.isProtected(face) else { return }
-        renaming = RenameTarget(face: face, location: location, generation: connection.connectionGeneration)
-    }
-    private func copy(_ face: SavedFace) {
-        let source = location
-        let target: FaceLibraryLocation = source == .local ? .board : .local
-        let link = connection
-        perform { _ = await model.copy(face, from: source, to: target, connection: link) }
+        renaming = RenameTarget(face: face, location: location, generation: connection.connectionGeneration, cursor: currentCursor)
     }
     private func prepareDelete(_ faces: [SavedFace]) {
         guard canManage, !faces.isEmpty else { return }
-        deletion = DeleteTarget(faces: faces, location: location, generation: connection.connectionGeneration)
+        deletion = DeleteTarget(faces: faces, location: location, generation: connection.connectionGeneration, cursor: currentCursor)
         showDeleteConfirmation = true
     }
     private func cancelOrder() {
@@ -447,7 +414,7 @@ struct FaceLibraryView: View {
     private func commitOrder() {
         guard let draft = orderDraft, let source = orderLocation else { return }
         let generation = orderGeneration
-        guard valid(source, generation: generation) else {
+        guard valid(source, generation: generation), cursorStillCurrent(orderCursor) else {
             cancelOrder(); model.errorMessage = changedBoardMessage; return
         }
         guard draft.map(\.id) != model.faces(in: source).map(\.id) else { cancelOrder(); return }
@@ -456,7 +423,9 @@ struct FaceLibraryView: View {
         // draft instead of showing an order that was never persisted.
         guard !isWorking else { orderDraft = nil; orderLocation = nil; orderGeneration = nil; return }
         let link = connection
+        let cursor = orderCursor
         perform {
+            guard cursorStillCurrent(cursor) else { cancelOrder(); model.errorMessage = changedBoardMessage; return }
             _ = await model.reorderFaces(draft, in: source, connection: link)
             // The model retains its confirmed order on failure. Clearing the
             // draft therefore rolls back the UI without an invented success.
@@ -464,8 +433,7 @@ struct FaceLibraryView: View {
         }
     }
     private func refresh(_ source: FaceLibraryLocation, connection: BoardConnection) async {
-        if source == .local { await model.reloadLocal() }
-        else { await model.reload(connection: connection) }
+        await model.reload(connection: connection)
     }
     private func exportAll() {
         guard let data = model.exportData(faces: confirmedFaces, from: location) else {
@@ -499,5 +467,76 @@ private struct FaceLibrarySearchPlacement: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if inMenu { content }
         else { content.searchable(text: $text, prompt: "搜索表情") }
+    }
+}
+
+
+/// The legacy store is visible only through this explicit connected-board copy
+/// flow. Its source snapshots remain intact regardless of cancellation/failure.
+private struct LegacyFaceMigrationView: View {
+    @Environment(BoardConnection.self) private var connection
+    @Environment(FaceLibraryModel.self) private var library
+    @Environment(\.dismiss) private var dismiss
+    @State private var faces: [SavedFace] = []
+    @State private var selected = Set<String>()
+    @State private var target: BoardFaceSaveSource?
+    @State private var loading = true
+    @State private var copying = false
+    @State private var message: String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("将选中的旧本机表情复制到当前面板。原文件会保留。")
+                        .foregroundStyle(.secondary)
+                }
+                if loading { ProgressView() }
+                if !loading && faces.isEmpty { Text("没有可复制的旧本机表情") }
+                ForEach(faces) { face in
+                    Button {
+                        if !selected.insert(face.id).inserted { selected.remove(face.id) }
+                    } label: {
+                        HStack {
+                            Text(face.name)
+                            Spacer()
+                            Image(systemName: selected.contains(face.id) ? "checkmark.circle.fill" : "circle")
+                        }
+                    }.disabled(copying)
+                }
+                if let message { Text(message).foregroundStyle(.secondary) }
+            }
+            .navigationTitle("复制旧本机表情")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }.disabled(copying)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("复制到当前面板") {
+                        guard let target else { return }
+                        copying = true
+                        Task {
+                            let result = await library.migrateLegacyFaces(
+                                faces.filter { selected.contains($0.id) }, to: target, connection: connection)
+                            message = library.operationMessage ?? library.errorMessage
+                            selected.subtract(result.succeededIDs)
+                            copying = false
+                        }
+                    }.disabled(copying || loading || selected.isEmpty)
+                }
+            }
+            .task {
+                target = BoardFaceSaveSource(boardID: connection.boardKey,
+                                              generation: connection.connectionGeneration)
+                faces = await library.legacyMigrationFaces()
+                message = library.errorMessage
+                loading = false
+            }
+            .onChange(of: connection.connectionState == .connected) { _, connected in
+                if !connected { dismiss() }
+            }
+            .onChange(of: connection.connectionGeneration) { _, _ in dismiss() }
+            .interactiveDismissDisabled(copying)
+        }
     }
 }

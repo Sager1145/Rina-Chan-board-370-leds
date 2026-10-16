@@ -79,6 +79,8 @@ public final class BoardConnection {
     /// `requestReliable`, `send`, or `sendUnqueued`.
     @ObservationIgnored public weak var outboundHook: BoardOutboundHook?
     public private(set) var connectionGeneration = UUID()
+    /// Identifies the actual carrier, including a replacement during setup.
+    public var carrierGeneration: UUID { transportSessionID }
     public private(set) var connectionState: BoardConnectionState = .disconnected {
         didSet {
             if connectionState != .connected && oldValue == .connected {
@@ -139,6 +141,10 @@ public final class BoardConnection {
     /// nil) before the first `get_info` round trip, or on firmware that
     /// predates it — `supports(_:)` is `false` either way.
     public private(set) var deviceInfoCaps: [String] = []
+    public var supportsPartsReferences: Bool { deviceInfoCaps.contains("faces_parts_v4") }
+    public var supportsConditionalFaceWrites: Bool { deviceInfoCaps.contains("faces_conditional_v1") }
+    public var currentFacesGeneration: Int? { facesGen }
+
 
     /// `true` iff the last `get_info` reported `cap` (BOARD_GROUP_SPEC §1.1/§2).
     /// Callers must check this before using any board-group command and never
@@ -798,6 +804,8 @@ public final class BoardConnection {
         // A generation only means anything within the carrier that reported it:
         // another client may have mutated the document while we were away.
         facesGen = nil
+        facesReadFlight?.task.cancel()
+        facesReadFlight = nil
     }
 
     /// Read a snapshot even when the firmware has no new events to publish.
@@ -1289,17 +1297,52 @@ public final class BoardConnection {
     /// each round-trip carries `FLAG_MORE` while more remain, at which point
     /// the next request must include `{"offset":n,"gen":g}` so the board can
     /// detect a concurrent mutation (HTTP 409-equivalent error) and restart.
+    // One verified document only. Reuse across carriers requires the same
+    // physical board AND boot id AND an explicit board-side gen confirmation.
+    private var facesMutationRevision: UInt64 = 0
+    private var verifiedFacesCache: (board: String, boot: String, gen: UInt32, data: Data)?
+    private var facesReadFlight: (id: UUID, generation: UUID, carrier: UUID?, task: Task<Data, Error>)?
+
     public func getFaces() async throws -> Data {
+        try Task.checkCancellation()
+        let generation = connectionGeneration
+        let carrier = transportSessionID
+        if let flight = facesReadFlight, flight.generation == generation, flight.carrier == carrier {
+            let result = try await flight.task.value
+            try Task.checkCancellation()
+            try checkSubmission(generation: generation, carrier: carrier)
+            return result
+        }
+        let id = UUID()
+        let task = Task { @MainActor in try await self.downloadFaces() }
+        facesReadFlight = (id, generation, carrier, task)
+        defer { if facesReadFlight?.id == id { facesReadFlight = nil } }
+        let result = try await task.value
+        try Task.checkCancellation()
+        try checkSubmission(generation: generation, carrier: carrier)
+        return result
+    }
+
+    private func downloadFaces() async throws -> Data {
+        let mutationRevision = facesMutationRevision
         let generation = connectionGeneration
         let carrier = transportSessionID
         var result = Data()
         var offset = 0
         var gen: UInt32?
         var didRestart = false
+        var reusableCache = verifiedFacesCache.flatMap { cache in
+            deviceInfoCaps.contains("faces_conditional_read_v1") && cache.board == boardKey && cache.boot == bootId ? cache : nil
+        }
+        if let reusableCache { gen = reusableCache.gen }
         while true {
             try checkSubmission(generation: generation, carrier: carrier)
             var payloadDict: [String: Any] = ["offset": offset]
             if let gen { payloadDict["gen"] = gen }
+            if let reusableCache, offset == 0 {
+                payloadDict["ifUnchanged"] = true
+                payloadDict["bootId"] = reusableCache.boot
+            }
             let payload = try JSONSerialization.data(withJSONObject: payloadDict)
             do {
                 // A1: each GET_FACES request/reply is its own one-frame
@@ -1307,6 +1350,7 @@ public final class BoardConnection {
                 // again with a higher offset", not "more frames on this seq".
                 let frame = try await send(type: .getFaces, payload: payload, aggregateMore: false)
                 try checkSubmission(generation: generation, carrier: carrier)
+                guard mutationRevision == facesMutationRevision else { throw CancellationError() }
                 guard frame.payload.count >= 4 else { throw RinaTransportError.invalidResponse }
                 let genBytes = [UInt8](frame.payload.prefix(4))
                 let frameGen = UInt32(genBytes[0])
@@ -1316,6 +1360,11 @@ public final class BoardConnection {
                 if gen == nil { gen = frameGen }
                 guard frameGen == gen else { throw RinaTransportError.invalidResponse }
                 let page = frame.payload.suffix(from: frame.payload.index(frame.payload.startIndex, offsetBy: 4))
+                if page.isEmpty, !frame.isMore, offset == 0, let cache = reusableCache, frameGen == cache.gen {
+                    facesGen = Int(frameGen)
+                    return cache.data
+                }
+                reusableCache = nil
                 guard page.count <= Self.maxFacesDocumentBytes - result.count else {
                     throw RinaTransportError.invalidResponse
                 }
@@ -1328,6 +1377,7 @@ public final class BoardConnection {
             } catch let error as RinaLinkError {
                 if error.code == 409, !didRestart {
                     didRestart = true
+                    reusableCache = nil
                     result = Data()
                     offset = 0
                     gen = nil
@@ -1341,7 +1391,12 @@ public final class BoardConnection {
         // expectation stayed `nil` after every reload and the first mutation
         // was declared in sync unconditionally.
         try checkSubmission(generation: generation, carrier: carrier)
-        if let gen { facesGen = Int(gen) }
+        if let gen {
+            facesGen = Int(gen)
+            if let boardKey, let bootId {
+                verifiedFacesCache = (boardKey, bootId, gen, result)
+            }
+        }
         return result
     }
 
@@ -1611,7 +1666,11 @@ public final class BoardConnection {
 
     public func saveFaces(document: FaceDocument) async throws {
         let data = try document.encoded()
-        _ = try await uploadBlob(kind: .faces, meta: [:], data: data)
+        let meta = try await faceWriteMetadata()
+        _ = try await uploadBlob(kind: .faces, meta: meta, data: data)
+        facesMutationRevision &+= 1
+        facesReadFlight = nil
+        facesGen = nil
     }
 
     // MARK: Incremental saved-face commands (§7.2)
@@ -1639,8 +1698,10 @@ public final class BoardConnection {
     }
 
     @discardableResult
-    public func faceUpsert(_ face: FaceUpsertPayload) async throws -> FaceOpReply {
-        try await sendFaceOp(.faceUpsert(face: face))
+    public func faceUpsert(_ face: FaceUpsertPayload, createOnly: Bool = false,
+                           expectedBootId: String? = nil, expectedGen: Int? = nil) async throws -> FaceOpReply {
+        try await sendFaceOp(.faceUpsert(face: face), createOnly: createOnly,
+                             expectedBootId: expectedBootId, expectedGen: expectedGen)
     }
 
     @discardableResult
@@ -1648,10 +1709,27 @@ public final class BoardConnection {
         try await sendFaceOp(.facesClearUser)
     }
 
-    private func sendFaceOp(_ cmd: RinaCommand) async throws -> FaceOpReply {
-        let payload = try cmd.encode()
+    private func faceWriteMetadata(expectedBootId: String? = nil, expectedGen: Int? = nil) async throws -> [String: Any] {
+        guard supportsConditionalFaceWrites else { return [:] }
+        if expectedBootId != nil || expectedGen != nil {
+            guard let expectedBootId, let expectedGen else { throw RinaTransportError.invalidResponse }
+            return ["expectedBootId": expectedBootId, "expectedGen": expectedGen]
+        }
+        if facesGen == nil { _ = try await getFaces() }
+        guard let bootId, let facesGen else { throw RinaTransportError.invalidResponse }
+        return ["expectedBootId": bootId, "expectedGen": facesGen]
+    }
+
+    private func sendFaceOp(_ cmd: RinaCommand, createOnly: Bool = false,
+                            expectedBootId: String? = nil, expectedGen: Int? = nil) async throws -> FaceOpReply {
         let generation = connectionGeneration
         let carrier = transportSessionID
+        let metadata = try await faceWriteMetadata(expectedBootId: expectedBootId, expectedGen: expectedGen)
+        try checkSubmission(generation: generation, carrier: carrier)
+        var object = try JSONSerialization.jsonObject(with: cmd.encode()) as? [String: Any] ?? [:]
+        object.merge(metadata) { _, new in new }
+        if createOnly && supportsConditionalFaceWrites { object["createOnly"] = true }
+        let payload = try JSONSerialization.data(withJSONObject: object)
         let reply: FaceOpReply = try await commandPump.run { @MainActor in
             try self.checkSubmission(generation: generation, carrier: carrier)
             return try await self.transact(payload: payload) { payload in
@@ -1661,6 +1739,11 @@ public final class BoardConnection {
             }
         }
         try checkSubmission(generation: generation, carrier: carrier)
+        facesMutationRevision &+= 1
+        // A reader started before this mutation cannot confirm the post-write
+        // library. Existing waiters finish/cancel independently; new readers
+        // must start a fresh transaction rather than joining that older flight.
+        facesReadFlight = nil
         // The reply's generation is the only evidence that nobody else mutated
         // `saved_faces.json` between our read and this write. Without it — no
         // `gen` field at all, or none observed for this carrier — there is no

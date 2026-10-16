@@ -175,15 +175,31 @@ final class FaceLibrarySortCacheTests: XCTestCase {
         XCTAssertTrue(reordered)
         assertCacheMatchesReference(model, in: .board)
         XCTAssertEqual(model.faces(in: .board).map(\.id), ["d1", "u1", "u2"])
+        model.requestEdit(model.face(id: "u2", in: .board)!, location: .board,
+                           connectionGeneration: connection.connectionGeneration)
+        XCTAssertEqual(model.pendingEditRequest?.expectedGen, 3,
+                       "A new editor starts from the confirmed post-reorder generation")
 
-        // Upsert an existing id (in-place: `faceDocument.faces[index].name = ...`
-        // plus frame/type/updatedAt/call, without a full `reload`).
+        // Upserts are published only after matching GET_FACES readback.
         var frameU2Updated = PackedFrame()
         frameU2Updated.set(9)
-        let saveOutcome = await model.save(
+        var readback = model.faceDocument
+        let u2Index = try XCTUnwrap(readback.faces.firstIndex { $0.id == "u2" })
+        readback.faces[u2Index].name = "U2 Updated"
+        readback.faces[u2Index].frameBytes = frameU2Updated.bytes.map(Int.init)
+        transport.automaticallyReplies = false
+        transport.resetRecordedFrames()
+        let saving = Task { await model.save(
             FaceUpsertPayload(id: "u2", name: "U2 Updated", type: "custom", frameHex: frameU2Updated.hex94),
             connection: connection
-        )
+        ) }
+        try await transport.waitForSent(type: .cmd, count: 1)
+        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 4])
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        transport.replyToNext(type: .getFaces, payload: Data([4, 0, 0, 0]) + (try readback.encoded()))
+        let saveOutcome = await saving.value
+        transport.nextCommandGen = 5
+        transport.automaticallyReplies = true
         XCTAssertEqual(saveOutcome, .saved(id: "u2"))
         assertCacheMatchesReference(model, in: .board)
         XCTAssertEqual(model.face(id: "u2", in: .board)?.name, "U2 Updated")

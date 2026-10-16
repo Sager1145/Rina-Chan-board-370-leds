@@ -202,7 +202,7 @@ Used for **scroll frame sets** and **saved-faces JSON**.
 | 0x21 | `BLOB_CHUNK` | `u32 offset LE` · bytes (for `scroll` the chunk must be a whole number of 47-byte frames) | `{"ok":true,"offset":<next>,"frames":<count so far>}` |
 | 0x22 | `BLOB_END` | JSON `{"start":bool}` (scroll) / `{}` (faces) | scroll: old `/api/scroll` 200 JSON; faces: `{"ok":true,"v":n,"bytes":n}` after validate + atomic write + install of that in-memory document |
 | 0x23 | `BLOB_ABORT` | — | `{"ok":true}` |
-| 0x24 | `GET_FACES` | `{"offset":n,"gen"?:n}` | `u32 gen LE` · raw `saved_faces.json` bytes from `offset`, MORE flag set while more remain; last message has MORE=0 |
+| 0x24 | `GET_FACES` | `{"offset":n,"gen"?:n}` | `u32 gen LE` · expanded saved-face JSON bytes from `offset`, MORE flag set while more remain; last message has MORE=0 |
 
 `BLOB_BEGIN`'s reply `offset` is always 0 — it never resumes a prior session (a
 fresh upload always starts at offset 0). `GET_FACES` replies are prefixed with the
@@ -442,12 +442,57 @@ Edits that would exceed the 256 KiB serialized document limit fail before replac
 the current file. A partial write never replaces the previous valid file.
 | cmd | payload | rule |
 |---|---|---|
-| `face_rename` | `{id, name}` | name ≤ 64 UTF-8 bytes |
+| `face_rename` | `{id, name}` | name ≤ 64 UTF-8 bytes; 400 for `type:"default"` |
 | `face_reorder` | `{ids:[…]}` | must list every face exactly once; assigns `order` 1…n |
 | `face_delete` | `{id}` | 400 for `type:"default"` or when it would remove the last default |
 | `face_upsert` | `{face:{id?, name, type:"custom"|"parts", frameHex (94 hex) or frameBytes[47], call?, expect?:{name, frameHex or frameBytes}}}` | new id → appended with `order = max+1`, `savedAt` set; existing id → frame/name/call/type replaced, `updatedAt` set; defaults cannot be overwritten; when `expect` is given on an existing id, the write is rejected 409 unless the face's current stored name and frame still match `expect` (optimistic concurrency for two clients editing the same face) |
 | `faces_clear_user` | — | deletes every non-default face |
 `GET_FACES` (with `gen`) remains the bulk download; `BLOB kind:"faces"` remains for import.
+
+
+#### Board-owned storage and display-safe transfer (2026-10-15)
+
+`get_info.caps` advertises `faces_parts_v4`, `faces_conditional_v1`,
+`faces_snapshot_v1`, and `faces_conditional_read_v1`. Unknown capability tokens
+must be ignored. `GET_STATUS` also reports `bootId` and `facesGeneration`.
+
+With `faces_conditional_v1`, every incremental mutation accepts the optional pair
+`expectedBootId` (string) and `expectedGen` (uint32). Both must be supplied together;
+a stale pair returns 409 before any write. `face_upsert` also accepts
+`createOnly:true`, requiring a stable client-supplied ID and returning 409 if that
+ID already exists. Existing content-based `face.expect` remains available.
+`BLOB_BEGIN kind:"faces"` accepts the same version pair; it is checked at both
+BEGIN and END, so a different writer cannot be silently overwritten during an
+upload. Legacy requests without guards retain unconditional semantics.
+
+A parts face may omit pixel fields only with
+`partsCatalog:"rina_expression_parts_370_runtime_v4"`, `partsVersion:4`, and
+`call:{leye,reye,mouth,cheek}` containing valid stable IDs. The firmware resolves
+these from its generated read-only catalog. Full bitmaps remain accepted. A
+full bitmap with parts metadata is compacted only when its recomposed pixels
+match exactly; otherwise its bitmap is preserved as a custom face. Unknown
+ID-only catalogs/parts are rejected. Custom pixels remain 47 bytes, LSB-first,
+with the final six unused bits zero.
+
+The canonical LittleFS file may contain references, but ordinary `GET_FACES`
+always returns complete expanded `frameBytes` for compatibility. All pages for
+a generation come from one shared immutable PSRAM snapshot, at most 256 KiB;
+subsequent pages do not reopen flash. A changed requested `gen` returns 409.
+New readers may send `{offset:0,gen:G,bootId:B,ifUnchanged:true}`. When both boot
+ID and generation match, the reply is exactly the four-byte generation prefix,
+MORE=0; only a client holding the matching verified document may reuse it.
+Otherwise a different generation returns 409, or a different boot ID causes a
+normal complete read. Do not interpret an empty page as a cache hit without
+having made the conditional request.
+
+The App holds only a bounded read cache, coalesces concurrent reads, and clears
+formal list visibility on disconnect. Saving prepares a complete runtime table
+before the atomic file replacement and publishes it only after success. Reading,
+receiving a blob, and publishing the library never submit a display frame. The
+current framebuffer is retained; firmware auto switching and GPIO/serial actions
+continue to use the materialized runtime table. Flash operations remain mutually
+exclusive with RMT transmission; a commit may delay a refresh, not interleave its
+flash operation with LED output.
 
 ### 7.3 Wi-Fi setup page (the only web UI left)
 A ~10 KB single page embedded in flash (PROGMEM, no LittleFS assets), served on

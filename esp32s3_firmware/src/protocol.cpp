@@ -90,6 +90,9 @@ struct BlobSession {
     // faces
     uint8_t* facesBuf = nullptr;
     size_t facesCap = 0;
+    bool facesConditional = false;
+    uint32_t facesExpectedGen = 0;
+    String facesExpectedBootId;
 
     // scroll_bitmap (§7.1): raw bitmap bytes are staged here. At BLOB_END, every
     // frame is expanded into a full PSRAM staging buffer BEFORE
@@ -129,6 +132,9 @@ struct BlobSession {
             facesBuf = nullptr;
         }
         facesCap = 0;
+        facesConditional = false;
+        facesExpectedGen = 0;
+        facesExpectedBootId = "";
         if (bitmapBuf) {
             heap_caps_free(bitmapBuf);
             bitmapBuf = nullptr;
@@ -355,18 +361,6 @@ static void sendErrorReply(ClientSlot& c, uint8_t seq, int code, const String& m
     emitJson(c, msg::ERR, seq, 0, d, false);
 }
 
-// --- Storage helpers -----------------------------------------------------------------
-static bool existsFs(const String& p) {
-    bool e = false;
-    withStorageLock([&]() { e = LittleFS.exists(p); });
-    return e;
-}
-static File openFs(const String& p, const char* m) {
-    File f;
-    withStorageLock([&]() { f = LittleFS.open(p, m); });
-    return f;
-}
-
 // --- JSON builders --------------------------------------------------------------------
 static void addScroll(JsonObject o) {
     ScrollSessionSnapshot s = scrollSessionSnapshot();
@@ -423,6 +417,8 @@ static void buildStatusJson(JsonDocument& d, bool lite) {
     d["ok"] = true;
     d["v"] = runtimeStateVersion();
     d["version"] = runtimeStateVersion();
+    d["bootId"] = boardBootId();
+    d["facesGeneration"] = savedFacesGeneration();
     if (!lite) {
         d["device"] = "RinaChanBoard";
         d["uptimeMs"] = millis() - runtimeState().bootMs;
@@ -663,7 +659,27 @@ static void handleGetInfo(ClientSlot& c, uint8_t seq) {
     // Optional. Tells a later client that apply_saved_face success carries
     // frameHex. Unknown tokens stay in the app's [String] caps list.
     caps.add("apply_face_frame");
+    caps.add("faces_parts_v4");
+    caps.add("faces_conditional_v1");
+    caps.add("faces_snapshot_v1");
+    caps.add("faces_conditional_read_v1");
     sendJsonReply(c, msg::CMD, seq, out);
+}
+
+static bool checkFacesWriteVersion(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVariant p) {
+    JsonVariant boot = !p.isNull() && p.containsKey("expectedBootId") ? p["expectedBootId"].as<JsonVariant>() : d["expectedBootId"].as<JsonVariant>();
+    JsonVariant gen = !p.isNull() && p.containsKey("expectedGen") ? p["expectedGen"].as<JsonVariant>() : d["expectedGen"].as<JsonVariant>();
+    if (boot.isNull() && gen.isNull())
+        return true; // legacy clients retain their existing unconditional behavior
+    if (!boot.is<const char*>() || !gen.is<uint32_t>()) {
+        sendErrorReply(c, seq, 400, "expectedBootId and expectedGen must be supplied together");
+        return false;
+    }
+    if (strcmp(boot.as<const char*>(), boardBootId()) != 0 || gen.as<uint32_t>() != savedFacesGeneration()) {
+        sendErrorReply(c, seq, 409, "saved faces changed; reload before writing");
+        return false;
+    }
+    return true;
 }
 
 // --- Incremental saved-face commands (docs/RINALINK_PROTOCOL_V1.md §7.2) ---------------
@@ -714,7 +730,6 @@ static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName,
         sendErrorReply(c, seq, 500, err);
         return;
     }
-    installSavedFacesDocument(doc.as<JsonVariant>(), false);
     touchRuntimeState();
 
     const size_t count = doc["faces"].as<JsonArray>().size();
@@ -790,8 +805,7 @@ static bool parseFaceFrameInput(JsonVariant faceIn, uint8_t* out, String& error)
             out[i++] = static_cast<uint8_t>(iv);
         }
     } else {
-        error = "face requires frameHex or frameBytes";
-        return false;
+        return materializeSavedFace(faceIn.as<JsonObject>(), out, error);
     }
     return validatePackedFrame(out, error);
 }
@@ -828,6 +842,12 @@ static void handleFaceRename(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
         JsonArray faces = doc["faces"].as<JsonArray>();
         for (JsonObject face : faces) {
             if (id == (const char*)(face["id"] | "")) {
+                // Same protection as face_delete / face_upsert overwrite.
+                if (strcmp(face["type"] | "", "default") == 0) {
+                    errCode = 400;
+                    errMsg = "cannot rename a default face";
+                    return false;
+                }
                 face["name"] = name;
                 face["updatedAtMs"] = millis();
                 return true;
@@ -961,6 +981,11 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
     const String typeStr(type);
     const String idInStr(idIn);
     JsonVariant callIn = faceIn["call"];
+    const bool createOnly = cbool(d, p, "createOnly", false);
+    if (createOnly && idInStr.isEmpty()) {
+        sendErrorReply(c, seq, 400, "createOnly requires a stable face id");
+        return;
+    }
     const char* savedAt = faceIn["savedAt"] | "";
     const String savedAtStr(savedAt);
 
@@ -997,6 +1022,9 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
                 existing = face;
         }
         if (!idInStr.isEmpty() && !existing.isNull()) {
+            if (createOnly) {
+                errCode = 409; errMsg = "face id already exists"; return false;
+            }
             if (strcmp(existing["type"] | "", "default") == 0) {
                 errCode = 400;
                 errMsg = "cannot overwrite a default face";
@@ -1021,6 +1049,10 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
             fb.clear();
             for (size_t i = 0; i < FRAME_BYTES; ++i)
                 fb.add(frame[i]);
+            existing.remove("partsCatalog");
+            existing.remove("partsVersion");
+            if (!faceIn["partsCatalog"].isNull()) existing["partsCatalog"] = faceIn["partsCatalog"];
+            if (!faceIn["partsVersion"].isNull()) existing["partsVersion"] = faceIn["partsVersion"];
             existing.remove("call");
             if (!callIn.isNull())
                 existing["call"] = callIn;
@@ -1037,6 +1069,8 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
         nf["id"] = newId;
         nf["name"] = nameStr;
         nf["type"] = typeStr;
+        if (!faceIn["partsCatalog"].isNull()) nf["partsCatalog"] = faceIn["partsCatalog"];
+        if (!faceIn["partsVersion"].isNull()) nf["partsVersion"] = faceIn["partsVersion"];
         JsonArray fb = nf.createNestedArray("frameBytes");
         for (size_t i = 0; i < FRAME_BYTES; ++i)
             fb.add(frame[i]);
@@ -1204,6 +1238,11 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
         sendJsonReply(c, msg::CMD, seq, out);
         return;
     }
+    const bool faceWrite = strcmp(cmd, "face_rename") == 0 || strcmp(cmd, "face_reorder") == 0 ||
+                           strcmp(cmd, "face_delete") == 0 || strcmp(cmd, "face_upsert") == 0 ||
+                           strcmp(cmd, "faces_clear_user") == 0;
+    if (faceWrite && !checkFacesWriteVersion(c, seq, d, p))
+        return;
     if (strcmp(cmd, "face_rename") == 0) {
         handleFaceRename(c, seq, d, p);
         return;
@@ -1817,6 +1856,8 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
         c.blob.bitmapViewportX = viewportX;
         g_activeScrollBlobSlot = selfSlot;
     } else if (strcmp(kind, "faces") == 0) {
+        JsonVariant noPayload;
+        if (!checkFacesWriteVersion(c, seq, d, noPayload)) { resetBlob(c); return; }
         if (totalBytes > MAX_FACES_DOCUMENT_BYTES) {
             resetBlob(c);
             sendErrorReply(c, seq, 413, "faces document too large");
@@ -1831,6 +1872,9 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload, 
             return;
         }
         c.blob.kind = BlobKind::Faces;
+        c.blob.facesConditional = !d["expectedGen"].isNull();
+        c.blob.facesExpectedGen = d["expectedGen"] | 0U;
+        c.blob.facesExpectedBootId = d["expectedBootId"] | "";
         c.blob.facesBuf = buf;
         c.blob.facesCap = totalBytes;
         c.blob.expectedOffset = 0;
@@ -2141,6 +2185,12 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
         resetBlob(c);
         sendJsonReply(c, msg::BLOB_END, seq, out);
     } else {
+        if (c.blob.facesConditional && (c.blob.facesExpectedGen != savedFacesGeneration() ||
+            c.blob.facesExpectedBootId != boardBootId())) {
+            resetBlob(c);
+            sendErrorReply(c, seq, 409, "saved faces changed during upload");
+            return;
+        }
         PsramJsonDocument d(savedFacesJsonCapacityFor(c.blob.expectedOffset));
         DeserializationError e = deserializeJson(d, c.blob.facesBuf, c.blob.expectedOffset, DeserializationOption::NestingLimit(32));
         if (e) {
@@ -2163,7 +2213,6 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
             sendErrorReply(c, seq, 500, err);
             return;
         }
-        installSavedFacesDocument(doc, false);
         DynamicJsonDocument out(384);
         out["ok"] = true;
         out["v"] = runtimeStateVersion();
@@ -2181,69 +2230,116 @@ static void handleBlobAbort(ClientSlot& c, uint8_t seq) {
     sendJsonReply(c, msg::BLOB_ABORT, seq, out);
 }
 
-// GET_FACES reply payload = [gen:4 bytes LE][file bytes from offset]. The request
-// may carry {"offset":n,"gen":g}; if gen is present and no longer matches the
-// current saved_faces.json generation, the transfer is aborted with 409 so a
-// multi-chunk download never silently splices together two different documents
-// (item 12).
+// A shared immutable projection is bounded to one document, independent of client
+// count. Only the Core-0 dispatcher owns it. Pages never touch flash or the live
+// framebuffer; mutations invalidate it through savedFacesGeneration().
+static char* g_facesReadSnapshot = nullptr;
+static size_t g_facesReadSnapshotBytes = 0;
+static uint32_t g_facesReadSnapshotGen = 0;
+
+static bool prepareFacesReadSnapshot(String& error) {
+    const uint32_t generation = savedFacesGeneration();
+    if (g_facesReadSnapshot && g_facesReadSnapshotGen == generation)
+        return true;
+    // An old generation cannot serve any new request; free before allocating
+    // to keep peak snapshot memory independent of how many clients reconnect.
+    free(g_facesReadSnapshot);
+    g_facesReadSnapshot = nullptr;
+    g_facesReadSnapshotBytes = 0;
+    char* fileBytes = nullptr;
+    size_t fileSize = 0;
+    if (!readBufferFromFileLocked(SAVED_FACES_PATH, fileBytes, fileSize)) {
+        error = "saved faces file unavailable";
+        return false;
+    }
+    PsramJsonDocument doc(savedFacesJsonCapacityFor(fileSize) + 16384);
+    const auto parsed = deserializeJson(doc, static_cast<const char*>(fileBytes), fileSize,
+                                       DeserializationOption::NestingLimit(32));
+    free(fileBytes);
+    if (parsed || !expandSavedFacesDocument(doc.as<JsonVariant>(), error) || doc.overflowed()) {
+        if (error.isEmpty()) error = "failed to expand saved faces";
+        return false;
+    }
+    const size_t bytes = measureJson(doc);
+    if (bytes > MAX_FACES_DOCUMENT_BYTES) {
+        error = "expanded saved faces exceed size limit";
+        return false;
+    }
+    // Bulk data must not consume the internal heap reserved for radio/RMT.
+    char* snapshot = static_cast<char*>(heap_caps_malloc(bytes + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!snapshot) {
+        error = "insufficient PSRAM for saved faces snapshot";
+        return false;
+    }
+    if (serializeJson(doc, snapshot, bytes + 1) != bytes) {
+        free(snapshot);
+        error = "incomplete saved faces snapshot";
+        return false;
+    }
+    g_facesReadSnapshot = snapshot;
+    g_facesReadSnapshotBytes = bytes;
+    g_facesReadSnapshotGen = generation;
+    return true;
+}
+
+// Legacy payload remains [gen:4 LE][expanded file bytes]. A write between
+// pages returns 409; all clients share the same stable generation snapshot.
 static void handleGetFaces(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16_t len) {
     uint32_t offset = 0;
     bool haveGen = false;
     uint32_t reqGen = 0;
+    bool ifUnchanged = false;
+    String requestBootId;
     if (len > 0) {
-        StaticJsonDocument<128> d;
-        if (!deserializeJson(d, payload, len)) {
-            offset = d["offset"] | 0;
-            if (!d["gen"].isNull()) {
-                haveGen = true;
-                reqGen = d["gen"] | 0;
-            }
+        StaticJsonDocument<384> d;
+        if (deserializeJson(d, payload, len) ||
+            (!d["offset"].isNull() && !d["offset"].is<uint32_t>()) ||
+            (!d["gen"].isNull() && !d["gen"].is<uint32_t>())) {
+            sendErrorReply(c, seq, 400, "invalid faces read cursor");
+            return;
         }
+        offset = d["offset"] | 0U;
+        haveGen = !d["gen"].isNull();
+        reqGen = d["gen"] | 0U;
+        ifUnchanged = d["ifUnchanged"] | false;
+        requestBootId = d["bootId"] | "";
     }
     if (!runtimeFsMounted()) {
         sendErrorReply(c, seq, 503, "LittleFS is not mounted");
         return;
     }
-    if (!existsFs(SAVED_FACES_PATH)) {
-        sendErrorReply(c, seq, 404, "saved_faces.json not found");
-        return;
-    }
-    uint32_t curGen = savedFacesGeneration();
+    const uint32_t curGen = savedFacesGeneration();
     if (haveGen && reqGen != curGen) {
         sendErrorReply(c, seq, 409, "saved_faces.json changed mid-transfer");
         return;
     }
-    File f = openFs(SAVED_FACES_PATH, "r");
-    if (!f) {
-        sendErrorReply(c, seq, 500, "failed to open saved_faces.json");
+    if (ifUnchanged && offset == 0 && haveGen && requestBootId == boardBootId()) {
+        const uint8_t unchanged[4] = {static_cast<uint8_t>(curGen), static_cast<uint8_t>(curGen >> 8),
+                                      static_cast<uint8_t>(curGen >> 16), static_cast<uint8_t>(curGen >> 24)};
+        sendFrame(c, static_cast<uint8_t>(msg::GET_FACES | 0x80), seq, 0, unchanged, sizeof(unchanged));
         return;
     }
-    size_t total = 0;
-    withStorageLock([&]() { total = f.size(); });
-    if (offset > total)
-        offset = (uint32_t)total;
+    String error;
+    if (!prepareFacesReadSnapshot(error)) {
+        sendErrorReply(c, seq, 503, error);
+        return;
+    }
+    const size_t total = g_facesReadSnapshotBytes;
+    if (offset > total) offset = static_cast<uint32_t>(total);
     uint16_t chunkMax = c.transport->preferredChunkBytes(ClientId{static_cast<uint8_t>(&c - g_clients)});
-    if (chunkMax == 0 || chunkMax > MAX_PAYLOAD_BYTES)
-        chunkMax = 2048;
-    if (chunkMax < 5)
-        chunkMax = 5; // must fit the 4-byte gen prefix plus at least 1 data byte
+    if (chunkMax == 0 || chunkMax > MAX_PAYLOAD_BYTES) chunkMax = 2048;
+    if (chunkMax < 5) chunkMax = 5;
     static uint8_t buf[MAX_PAYLOAD_BYTES];
-    buf[0] = (uint8_t)(curGen & 0xFF);
-    buf[1] = (uint8_t)((curGen >> 8) & 0xFF);
-    buf[2] = (uint8_t)((curGen >> 16) & 0xFF);
-    buf[3] = (uint8_t)((curGen >> 24) & 0xFF);
-    size_t want = total - offset;
-    size_t dataCap = (size_t)chunkMax - 4;
-    if (want > dataCap)
-        want = dataCap;
-    size_t n = 0;
-    withStorageLock([&]() {
-        f.seek(offset);
-        n = f.read(buf + 4, want);
-        f.close();
-    });
-    bool more = (offset + n) < total;
-    sendFrame(c, static_cast<uint8_t>(msg::GET_FACES | 0x80), seq, more ? FLAG_MORE : 0, buf, (uint16_t)(n + 4));
+    buf[0] = static_cast<uint8_t>(curGen);
+    buf[1] = static_cast<uint8_t>(curGen >> 8);
+    buf[2] = static_cast<uint8_t>(curGen >> 16);
+    buf[3] = static_cast<uint8_t>(curGen >> 24);
+    size_t n = total - offset;
+    const size_t cap = static_cast<size_t>(chunkMax) - 4;
+    if (n > cap) n = cap;
+    memcpy(buf + 4, g_facesReadSnapshot + offset, n);
+    sendFrame(c, static_cast<uint8_t>(msg::GET_FACES | 0x80), seq,
+              offset + n < total ? FLAG_MORE : 0, buf, static_cast<uint16_t>(n + 4));
 }
 
 // --- Top-level dispatch ----------------------------------------------------------------

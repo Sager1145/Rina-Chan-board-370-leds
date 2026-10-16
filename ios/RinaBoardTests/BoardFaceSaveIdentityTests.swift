@@ -4,7 +4,12 @@ import RinaCore
 
 @MainActor
 final class BoardFaceSaveIdentityTests: XCTestCase {
-    func testSameBoardReconnectKeepsUpdateID() async throws {
+    /// A `wifi:` key is only an address: after a reconnect another board can
+    /// answer on the same host, so an update ID must not cross the
+    /// generation without a physical identity (the multi-board save applies
+    /// the same rule). The physical-identity case is covered by
+    /// `testBLEBoardIdentityFromWifiBoardIdKeepsFaceUpdateAcrossReconnectAndTransport`.
+    func testUnidentifiedSameHostReconnectRejectsStaleUpdateWithoutSending() async throws {
         let oldGeneration = UUID()
         let newGeneration = UUID()
         let editor = ControlViewModel()
@@ -17,24 +22,37 @@ final class BoardFaceSaveIdentityTests: XCTestCase {
 
         let library = FaceLibraryModel()
         let payload = editor.upsertPayload(using: library)
-        XCTAssertEqual(payload.id, "face-1")
         XCTAssertEqual(editor.boardFaceSaveSource,
                        BoardFaceSaveSource(boardID: "wifi:rina.local", generation: oldGeneration))
 
         let (connection, transport) = await connectedBoard(host: "rina.local")
+        XCTAssertEqual(connection.boardKey, "wifi:rina.local")
         transport.resetRecordedFrames()
-        let outcome = await library.save(payload, source: editor.boardFaceSaveSource,
-                                         connection: connection)
+        let outcome = await library.save(payload, source: editor.boardFaceSaveSource, connection: connection)
 
-        XCTAssertEqual(outcome, .saved(id: "face-1"))
-        let command = try XCTUnwrap(transport.lastSent(type: .cmd))
-        let object = try XCTUnwrap(
-            try JSONSerialization.jsonObject(with: command.payload) as? [String: Any]
-        )
-        let face = try XCTUnwrap(object["face"] as? [String: Any])
-        XCTAssertEqual(face["id"] as? String, "face-1",
-                       "A reconnect to the same physical board must remain an update")
+        XCTAssertEqual(outcome, .failed)
+        XCTAssertEqual(transport.sentCount(type: .cmd), 0,
+                       "A reused host without a board identity must not receive the old update ID")
         connection.disconnect()
+    }
+
+    func testSameBoardRuleTreatsOnlyWifiKeysAsAddresses() {
+        let a = UUID(), b = UUID()
+        XCTAssertFalse(FaceLibraryModel.sameBoard(sourceBoardID: "wifi:reused.local", sourceGeneration: a,
+                                                  currentBoardID: "wifi:reused.local", currentGeneration: b))
+        XCTAssertTrue(FaceLibraryModel.sameBoard(sourceBoardID: "wifi:reused.local", sourceGeneration: a,
+                                                 currentBoardID: "wifi:reused.local", currentGeneration: a))
+        XCTAssertFalse(FaceLibraryModel.sameBoard(sourceBoardID: "wifi:a.local", sourceGeneration: a,
+                                                  currentBoardID: "wifi:b.local", currentGeneration: a))
+        XCTAssertTrue(FaceLibraryModel.sameBoard(sourceBoardID: "board:AABBCCDDEEFF", sourceGeneration: a,
+                                                 currentBoardID: "board:AABBCCDDEEFF", currentGeneration: b))
+        XCTAssertFalse(FaceLibraryModel.sameBoard(sourceBoardID: "board:AABBCCDDEEFF", sourceGeneration: a,
+                                                  currentBoardID: "board:112233445566", currentGeneration: a))
+        let peripheral = "ble:" + UUID().uuidString
+        XCTAssertTrue(FaceLibraryModel.sameBoard(sourceBoardID: peripheral, sourceGeneration: a,
+                                                 currentBoardID: peripheral, currentGeneration: b))
+        XCTAssertFalse(FaceLibraryModel.sameBoard(sourceBoardID: nil, sourceGeneration: a,
+                                                  currentBoardID: nil, currentGeneration: b))
     }
 
     func testDifferentBoardRejectsStaleUpdateWithoutSending() async {
@@ -153,7 +171,8 @@ final class BoardFaceSaveIdentityTests: XCTestCase {
         let payload1 = editor.upsertPayload(using: library)
         XCTAssertEqual(payload1.id, "face-1")
         transport1.resetRecordedFrames()
-        let outcome1 = await library.save(payload1, source: editor.boardFaceSaveSource, connection: connection1)
+        let outcome1 = try await saveWithReadback(payload1, source: editor.boardFaceSaveSource,
+                                                   library: library, connection: connection1, transport: transport1)
         XCTAssertEqual(outcome1, .saved(id: "face-1"))
         let command1 = try XCTUnwrap(transport1.lastSent(type: .cmd))
         let face1 = try XCTUnwrap(
@@ -175,7 +194,8 @@ final class BoardFaceSaveIdentityTests: XCTestCase {
         let payload2 = editor.upsertPayload(using: library)
         XCTAssertEqual(payload2.id, "face-1")
         transport2.resetRecordedFrames()
-        let outcome2 = await library.save(payload2, source: editor.boardFaceSaveSource, connection: connection2)
+        let outcome2 = try await saveWithReadback(payload2, source: editor.boardFaceSaveSource,
+                                                   library: library, connection: connection2, transport: transport2)
         XCTAssertEqual(outcome2, .saved(id: "face-1"))
         let command2 = try XCTUnwrap(transport2.lastSent(type: .cmd))
         let face2 = try XCTUnwrap(
@@ -232,6 +252,25 @@ final class BoardFaceSaveIdentityTests: XCTestCase {
         await script.value
         transport.automaticallyReplies = true
         return connected
+    }
+
+    private func saveWithReadback(_ payload: FaceUpsertPayload, source: BoardFaceSaveSource?,
+                                  library: FaceLibraryModel, connection: BoardConnection,
+                                  transport: FakeRinaTransport) async throws -> FaceLibraryModel.SaveOutcome {
+        transport.automaticallyReplies = false
+        let save = Task { await library.save(payload, source: source, connection: connection) }
+        try await transport.waitForSent(type: .cmd, count: 1)
+        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 1])
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        let frame = try XCTUnwrap(PackedFrame(hex94: payload.frameHex))
+        let stored = SavedFace(id: try XCTUnwrap(payload.id), name: payload.name,
+                               type: SavedFace.Kind(rawValue: payload.type) ?? .custom,
+                               frameBytes: frame.bytes.map(Int.init), order: 1, call: payload.call)
+        transport.replyToNext(type: .getFaces,
+                              payload: Data([1, 0, 0, 0]) + (try FaceDocument(faces: [stored]).encoded()))
+        let outcome = await save.value
+        transport.automaticallyReplies = true
+        return outcome
     }
 
     private func editableFace() -> SavedFace {

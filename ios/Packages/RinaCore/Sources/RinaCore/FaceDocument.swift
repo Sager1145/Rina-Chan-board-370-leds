@@ -36,6 +36,8 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
     public var savedAt: String?
     public var updatedAt: String?
     public var call: CallIds?
+    public var partsCatalog: String?
+    public var partsVersion: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, frameBytes, frameHex, order, editable, deletable, locked
@@ -43,7 +45,7 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
         case sourceFile
         case savedAt
         case updatedAt
-        case call
+        case call, partsCatalog, partsVersion
     }
 
     /// Sentinel written by the lenient decoder when `order` is missing so
@@ -53,7 +55,8 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
     public init(id: String, name: String, type: Kind, frameBytes: [Int], order: Int,
                 editable: Bool? = nil, deletable: Bool? = nil, locked: Bool? = nil,
                 isStartupDefault: Bool? = nil, sourceFile: String? = nil, savedAt: String? = nil,
-                updatedAt: String? = nil, call: CallIds? = nil) {
+                updatedAt: String? = nil, call: CallIds? = nil,
+                partsCatalog: String? = nil, partsVersion: Int? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -67,6 +70,8 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
         self.savedAt = savedAt
         self.updatedAt = updatedAt
         self.call = call
+        self.partsCatalog = partsCatalog
+        self.partsVersion = partsVersion
     }
 
     /// Lenient decoding so one malformed face doesn't fail the whole document:
@@ -104,6 +109,8 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
         savedAt = try? container.decode(String.self, forKey: .savedAt)
         updatedAt = try? container.decode(String.self, forKey: .updatedAt)
         call = try? container.decode(CallIds.self, forKey: .call)
+        partsCatalog = try? container.decode(String.self, forKey: .partsCatalog)
+        partsVersion = try? container.decode(Int.self, forKey: .partsVersion)
     }
 
     private static func bytes(fromHex hex: String) -> [Int]? {
@@ -147,6 +154,8 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
         try container.encodeIfPresent(savedAt, forKey: .savedAt)
         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
         try container.encodeIfPresent(call, forKey: .call)
+        try container.encodeIfPresent(partsCatalog, forKey: .partsCatalog)
+        try container.encodeIfPresent(partsVersion, forKey: .partsVersion)
     }
 }
 

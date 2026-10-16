@@ -100,6 +100,7 @@ struct RootTabView: View {
         ZStack {
             if contentReady {
                 tabs
+                .accessibilityIdentifier("app.content")
                 .modifier(ControlCenterPresenter(isPresented: $showControlCenter,
                                                  namespace: controlCenterNamespace))
                 .tint(Color("AccentColor"))
@@ -270,27 +271,27 @@ struct RootTabView: View {
         TabView(selection: Bindable(router).selectedTab) {
             ControlView()
                 .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
-                .tabItem { Label("表情显示", image: "TabRinaFace") }
+                .tabItem { Label("表情显示", image: "TabRinaFace").accessibilityIdentifier("tab.control") }
                 .tag(AppTab.control)
 
             ScrollTextView()
                 .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
-                .tabItem { Label("文字滚动", image: "TabScrollText") }
+                .tabItem { Label("文字滚动", image: "TabScrollText").accessibilityIdentifier("tab.text") }
                 .tag(AppTab.text)
 
             LipSyncView()
                 .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
-                .tabItem { Label("嘴形识别", systemImage: "waveform") }
+                .tabItem { Label("嘴形识别", systemImage: "waveform").accessibilityIdentifier("tab.lipSync") }
                 .tag(AppTab.lipSync)
 
             PerformanceTabView()
                 .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
-                .tabItem { Label("演出", systemImage: "music.note") }
+                .tabItem { Label("演出", systemImage: "music.note").accessibilityIdentifier("tab.presetLive") }
                 .tag(AppTab.presetLive)
 
             SettingsView()
                 .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
-                .tabItem { Label("设定", image: "TabRinaSettings") }
+                .tabItem { Label("设定", image: "TabRinaSettings").accessibilityIdentifier("tab.settings") }
                 .tag(AppTab.settings)
         }
         .environment(controlCenterColumnScroll)
@@ -305,8 +306,7 @@ struct RootTabView: View {
             ArkPixelInputFont.prewarm()
         }.value
         async let scrollFont: Void = textModel.prewarmFont()
-        async let faces: Void = faceLibrary.loadLocalIfNeeded()
-        _ = await (inputFont, scrollFont, faces)
+        _ = await (inputFont, scrollFont)
         // Parses on the main actor, so it goes last: the tabs have mounted
         // and the first-page waterfall is under way by now.
         let mode = PerformanceTabMode.stored

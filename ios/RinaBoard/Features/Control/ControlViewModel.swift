@@ -90,6 +90,8 @@ final class ControlViewModel {
     /// meantime. `nil` when there is nothing to guard (no face being edited,
     /// or an old draft from before this guard existed).
     private(set) var editingBaseline: FaceExpectation?
+    private var editingExpectedBootId: String?
+    private var editingExpectedGen: Int?
     var editingLocation: FaceLibraryLocation = .local
     /// Physical board that owns `editingFaceId`. This remains stable across a
     /// reconnect even though `editingBoardGeneration` changes.
@@ -105,7 +107,8 @@ final class ControlViewModel {
     var boardFaceSaveSource: BoardFaceSaveSource? {
         guard editingFaceId != nil else { return nil }
         return BoardFaceSaveSource(boardID: editingBoardID,
-                                   generation: editingBoardGeneration)
+                                   generation: editingBoardGeneration,
+                                   expectedBootId: editingExpectedBootId, expectedGen: editingExpectedGen)
     }
     var draftStorageError: String?
     private var restoringDraft = false
@@ -161,6 +164,16 @@ final class ControlViewModel {
         let connection: BoardConnection
     }
 
+    private struct PendingBoardSave: Codable {
+        var payload: FaceUpsertPayload
+        var source: BoardFaceSaveSource
+        var createOnly: Bool
+        var expectedOrder: Int?
+    }
+    private var pendingBoardSave: PendingBoardSave?
+    var hasPendingBoardSave: Bool { pendingBoardSave != nil }
+    var pendingBoardSaveName: String? { pendingBoardSave?.payload.name }
+
     private struct Draft: Codable {
         var version = 1
         var frame: String
@@ -174,6 +187,17 @@ final class ControlViewModel {
         /// decodes to `nil` and just means the overwrite guard is unarmed.
         var baseName: String?
         var baseFrame: String?
+        var boardFaceID: String?
+        var boardGeneration: UUID?
+        var expectedBootId: String?
+        var expectedGen: Int?
+        var canOverwrite: Bool?
+        var pendingSave: PendingBoardSave?
+    }
+
+    static func hasPendingSave(in storage: DraftStorage) async throws -> Bool {
+        guard let data = try await storage.read("face") else { return false }
+        return try JSONDecoder().decode(Draft.self, from: data).pendingSave != nil
     }
 
     func restoreDraft() async {
@@ -190,7 +214,14 @@ final class ControlViewModel {
             guard draft.version == 1, let frame = PackedFrame(hex94: draft.frame) else { return }
             draftFrame = frame; saveName = draft.name; fromParts = draft.fromParts
             selectedCall = draft.call; userHasEdited = true
-            editingLocation = .local; editingFaceId = draft.localFaceID
+            editingLocation = draft.boardFaceID != nil ? .board : .local
+            editingFaceId = draft.boardFaceID ?? draft.localFaceID
+            editingBoardID = draft.boardID
+            editingBoardGeneration = draft.boardGeneration
+            editingExpectedBootId = draft.expectedBootId
+            editingExpectedGen = draft.expectedGen
+            editingFaceCanOverwrite = draft.canOverwrite ?? false
+            pendingBoardSave = draft.pendingSave
             draftBoardID = draft.boardID
             if let baseName = draft.baseName, let baseFrame = draft.baseFrame {
                 editingBaseline = FaceExpectation(name: baseName, frameHex: baseFrame)
@@ -216,27 +247,52 @@ final class ControlViewModel {
         }
     }
 
-    func persistDraft() async {
-        guard draftRestoreCompleted || userHasEdited else { return }
+    /// Explicitly gives up reconciling the pending board save so the editor
+    /// can save again, e.g. when its board never comes back or cannot be
+    /// identified after a reconnect. Nothing is sent and nothing is rolled
+    /// back: the board may already hold that face. The drawing is kept.
+    @discardableResult
+    func discardPendingBoardSave() async -> Bool {
+        guard let previous = pendingBoardSave else { return false }
+        pendingBoardSave = nil
+        guard await persistDraft(force: true) else {
+            pendingBoardSave = previous
+            return false
+        }
+        return true
+    }
+
+    /// `force` writes even an unedited, unrestored draft, so a cleared
+    /// pending save cannot survive in the stored copy.
+    @discardableResult
+    func persistDraft(force: Bool = false) async -> Bool {
+        guard force || draftRestoreCompleted || userHasEdited || pendingBoardSave != nil else { return true }
         let draft = Draft(frame: draftFrame.hex94, name: saveName, fromParts: fromParts,
                           call: selectedCall, localFaceID: editingLocation == .local ? editingFaceId : nil,
                           boardID: draftBoardID,
-                          baseName: editingBaseline?.name, baseFrame: editingBaseline?.frameHex)
+                          baseName: editingBaseline?.name, baseFrame: editingBaseline?.frameHex,
+                          boardFaceID: editingLocation == .board ? editingFaceId : nil,
+                          boardGeneration: editingBoardGeneration,
+                          expectedBootId: editingExpectedBootId, expectedGen: editingExpectedGen,
+                          canOverwrite: editingFaceCanOverwrite, pendingSave: pendingBoardSave)
         do {
             let data = try JSONEncoder().encode(draft)
             try await draftStorage.write(data, name: "face")
             draftStorageError = nil
+            return true
         } catch {
             draftStorageError = String(
                 format: NSLocalizedString("将草稿保存到本机失败：%@", comment: "face draft persistence failed"),
                 error.localizedDescription
             )
+            return false
         }
     }
 
     func releaseOutput() { liveSender?.cancel() }
     func connectionChanged(generation: UUID? = nil) {
         clearSendConfirmation()
+        hoveredLED = nil
         currentBoardGeneration = generation
         sentGeneration = nil
         modeSynchronizedGeneration = nil
@@ -297,6 +353,8 @@ final class ControlViewModel {
         userHasEdited = false
         editingFaceId = nil
         editingBaseline = nil
+        editingExpectedBootId = nil
+        editingExpectedGen = nil
         editingLocation = .local
         editingBoardID = nil
         editingBoardGeneration = nil
@@ -308,6 +366,10 @@ final class ControlViewModel {
         // relaunch must find no draft at all, not an "edited" empty one.
         draftSaveTask?.cancel()
         draftSaveTask = nil
+        if pendingBoardSave != nil {
+            Task { await persistDraft() }
+            return
+        }
         let storage = draftStorage
         Task { [weak self] in
             do {
@@ -338,6 +400,8 @@ final class ControlViewModel {
         editingLocation = request.location
         editingBoardID = request.boardID
         editingBoardGeneration = request.boardGeneration
+        editingExpectedBootId = request.expectedBootId
+        editingExpectedGen = request.expectedGen
         // Protected faces are already forced non-overwritable by the
         // `SavedFace` overload above; a local-origin face is otherwise fully
         // overwritable in its own (local) library — only an explicit "edit
@@ -754,42 +818,50 @@ final class ControlViewModel {
 
     // MARK: Saves hand-off (§11)
 
-    /// The destination frozen when the naming sheet opens (Control §11.3): an
-    /// existing, overwritable face saves back to its own origin library;
-    /// otherwise (a brand-new face, or an explicit "save as new") the
-    /// destination follows the connection the moment the sheet opens — the
-    /// board if connected, local otherwise.
+    /// Naming always targets the connected board. The view freezes its
+    /// identity when opening the sheet; offline work remains an unsaved draft.
     func suggestedSaveLocation(asNew: Bool, isConnected: Bool) -> FaceLibraryLocation {
-        (!asNew && canOverwriteEditingFace) ? editingLocation : (isConnected ? .board : .local)
+        .board
     }
 
     /// Saves the draft itself; does not send a frame first and does not alter
     /// `lastSentFrame`. Saving a library entry is not displaying that entry.
     ///
-    /// `asNew` only means the saved payload carries no replacing id — it does
-    /// **not** clear the editor's current target first (unlike the old
-    /// `startNewFace()` + save sequence): a failed save-as-new must leave the
-    /// editor still pointed at whatever it could overwrite before the attempt.
+    /// `asNew` allocates a durable new UUID while retaining the editor's
+    /// previous overwrite target until a matching board readback succeeds.
     @discardableResult
     func saveEditedFace(name: String, asNew: Bool, to location: FaceLibraryLocation,
                         library: FaceLibraryModel, connection: BoardConnection,
                         expectedBoard: BoardFaceSaveSource? = nil) async -> Bool {
+        do {
+            if try await MultiBoardFaceSaveCoordinator.hasRetainedOperation(in: draftStorage) {
+                library.errorMessage = NSLocalizedString("请先查看上次多面板保存的结果并完成核对", comment: "retained multi-board result blocks new single operation")
+                return false
+            }
+        } catch {
+            library.errorMessage = error.localizedDescription
+            return false
+        }
+        guard location == .board, connection.connectionState == .connected else {
+            library.errorMessage = NSLocalizedString("请连接面板后保存；未提交草稿会保留在本机", comment: "saved library requires connected board")
+            return false
+        }
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, clean.utf8.count <= 64 else {
             library.errorMessage = NSLocalizedString("名称不能为空，且不能超过 64 个 UTF-8 字节", comment: "face name validation")
             return false
         }
         if location == .board, let expectedBoard {
-            let matches: Bool
-            if let expectedID = expectedBoard.boardID, let currentID = connection.boardKey {
-                matches = expectedID == currentID
-            } else {
-                matches = expectedBoard.generation == connection.connectionGeneration
-            }
-            guard matches else {
+            guard FaceLibraryModel.sameBoard(sourceBoardID: expectedBoard.boardID,
+                                              sourceGeneration: expectedBoard.generation,
+                                              currentBoardID: connection.boardKey,
+                                              currentGeneration: connection.connectionGeneration) else {
                 library.errorMessage = NSLocalizedString("面板已更换，请重新选择表情", comment: "saved face belongs to another board")
                 return false
             }
+        }
+        if connection.supportsConditionalFaceWrites && connection.currentFacesGeneration == nil {
+            guard await library.reload(connection: connection) else { return false }
         }
         let beforeFrame = draftFrame
         let beforeParts = fromParts
@@ -801,44 +873,110 @@ final class ControlViewModel {
         let beforeGeneration = editingBoardGeneration
         let replacingID = !asNew && editingFaceCanOverwrite && editingLocation == location
             ? editingFaceId : nil
-        // A rename made earlier in this same session (e.g. via the saved-list
-        // sheet) already reached the library's own copy of `replacingID`, but
-        // never touched `editingBaseline` — it isn't a change made elsewhere.
-        // Adopt the known name into the baseline so the guard only fires on
-        // a real foreign edit. Frame differences are never adopted this way:
-        // only a foreign edit changes the frame, and that must still guard.
-        if let replacingID, var baseline = editingBaseline,
-           let known = library.face(id: replacingID, in: location),
-           known.packedFrame?.hex94 == baseline.frameHex, known.name != baseline.name {
-            baseline.name = known.name
-            editingBaseline = baseline
+        if let replacingID, let baseline = editingBaseline,
+           let renamed = library.confirmedRenameBaseline(id: replacingID, from: baseline) {
+            editingBaseline = renamed
+            editingExpectedBootId = library.boardBootId
+            editingExpectedGen = library.boardFacesGen
         }
-        let payload = FaceUpsertPayload(
-            id: location == .board ? replacingID : nil,
+        let pureParts = fromParts && self.library?.compose(call: selectedCall) == draftFrame
+        var payload = FaceUpsertPayload(
+            id: replacingID ?? ("user_" + UUID().uuidString.lowercased()),
             name: clean,
-            type: (fromParts ? SavedFace.Kind.parts : .custom).rawValue,
+            type: (pureParts ? SavedFace.Kind.parts : .custom).rawValue,
             frameHex: draftFrame.hex94,
-            call: fromParts ? SavedFace.CallIds(leye: selectedCall.leye, reye: selectedCall.reye,
+            call: pureParts ? SavedFace.CallIds(leye: selectedCall.leye, reye: selectedCall.reye,
                                                mouth: selectedCall.mouth, cheek: selectedCall.cheek) : nil,
             expect: replacingID != nil ? editingBaseline : nil
         )
         let destination = BoardFaceSaveSource(boardID: connection.boardKey,
-                                              generation: connection.connectionGeneration)
-        let result: FaceLibraryModel.SaveOutcome
-        switch location {
-        case .local:
-            result = await library.saveLocal(payload, replacingID: replacingID)
-        case .board:
-            result = await library.save(payload, source: boardFaceSaveSource, connection: connection)
+                                              generation: connection.connectionGeneration,
+                                              expectedBootId: connection.bootId,
+                                              expectedGen: connection.currentFacesGeneration)
+        if pureParts, connection.supportsPartsReferences {
+            payload.partsReferenceOnly = true
+            payload.partsCatalog = "rina_expression_parts_370_runtime_v4"
+            payload.partsVersion = 4
         }
-        guard case .saved(let savedID) = result else { return false }
+        payload = library.canonicalPayload(payload, supportsPartsReferences: connection.supportsPartsReferences)
+        let result: FaceLibraryModel.SaveOutcome
+        let wasReconciling = pendingBoardSave != nil
+        if var pending = pendingBoardSave {
+            guard FaceLibraryModel.sameBoard(sourceBoardID: pending.source.boardID,
+                                              sourceGeneration: pending.source.generation,
+                                              currentBoardID: connection.boardKey,
+                                              currentGeneration: connection.connectionGeneration) else {
+                library.errorMessage = NSLocalizedString("结果待确认：请连接原面板核对", comment: "pending face save belongs to another board")
+                return false
+            }
+            guard await library.reload(connection: connection) else { return false }
+            if library.matchesSavedPayload(pending.payload, expectedOrder: pending.expectedOrder) {
+                result = .saved(id: pending.payload.id)
+            } else if library.face(id: pending.payload.id ?? "", in: .board) != nil {
+                pendingBoardSave = nil
+                await persistDraft()
+                library.errorMessage = NSLocalizedString("此表情已在别处被修改：请重新载入后再保存", comment: "pending save conflicts")
+                return false
+            } else if pending.createOnly && connection.supportsConditionalFaceWrites {
+                // Absence was just confirmed. The firmware atomically checks both
+                // this version and createOnly before reusing the original UUID.
+                guard connection.connectionState == .connected,
+                      FaceLibraryModel.sameBoard(sourceBoardID: pending.source.boardID,
+                                                  sourceGeneration: pending.source.generation,
+                                                  currentBoardID: connection.boardKey,
+                                                  currentGeneration: connection.connectionGeneration) else { return false }
+                pending.source = BoardFaceSaveSource(boardID: connection.boardKey,
+                                                       generation: connection.connectionGeneration,
+                                                       expectedBootId: connection.bootId,
+                                                       expectedGen: connection.currentFacesGeneration)
+                pending.expectedOrder = (library.faceDocument.faces.map(\.order).max() ?? 0) + 1
+                pendingBoardSave = pending
+                guard await persistDraft() else { return false }
+                result = await library.save(pending.payload, source: pending.source,
+                                            createOnly: true, connection: connection)
+            } else {
+                library.errorMessage = NSLocalizedString("结果待确认：此固件无法安全重试，请刷新或升级固件", comment: "pending face needs conditional firmware")
+                return false
+            }
+            payload = pending.payload
+        } else {
+            let source = replacingID != nil ? (boardFaceSaveSource ?? destination) : destination
+            let expectedOrder = library.face(id: payload.id ?? "", in: .board)?.order
+                ?? (library.boardGeneration == connection.connectionGeneration
+                    ? (library.faceDocument.faces.map(\.order).max() ?? 0) + 1 : nil)
+            pendingBoardSave = PendingBoardSave(payload: payload, source: source,
+                                                createOnly: replacingID == nil, expectedOrder: expectedOrder)
+            draftSaveTask?.cancel()
+            // A durable identity must precede the first byte sent to the board.
+            guard await persistDraft() else {
+                pendingBoardSave = nil
+                library.errorMessage = draftStorageError
+                return false
+            }
+            result = await library.save(payload, source: source,
+                                        createOnly: replacingID == nil, connection: connection)
+        }
+        guard case .saved(let savedID) = result else {
+            if case .failed = result { pendingBoardSave = nil; await persistDraft() }
+            return false
+        }
+        pendingBoardSave = nil
+        if wasReconciling && (payload.name != clean || payload.frameHex != beforeFrame.hex94) {
+            await persistDraft()
+            library.errorMessage = NSLocalizedString("上次保存已核对；当前编辑尚未保存，请再次保存", comment: "old save confirmed current edits unsaved")
+            return false
+        }
 
         // Saving may finish after an explicit board switch or a new edit in
         // another view. The file was saved, but must not relabel that new draft.
-        guard draftFrame == beforeFrame, fromParts == beforeParts,
+        guard draftFrame.hex94 == payload.frameHex,
+              draftFrame == beforeFrame, fromParts == beforeParts,
               selectedCall == beforeCall, editingFaceId == beforeID,
               editingLocation == beforeLocation, editingBoardID == beforeBoardID,
-              draftBoardID == beforeDraftBoardID, editingBoardGeneration == beforeGeneration else { return true }
+              draftBoardID == beforeDraftBoardID, editingBoardGeneration == beforeGeneration else {
+            await persistDraft()
+            return true
+        }
         // `.saved(id: nil)` keeps the old `didSave` semantics: the editor's
         // target (id/location/board/overwrite) is left exactly as it was,
         // only `saveName` follows the save.
@@ -849,9 +987,58 @@ final class ControlViewModel {
             editingBoardGeneration = location == .board ? destination.generation : nil
             editingFaceCanOverwrite = true
         }
-        editingBaseline = FaceExpectation(name: clean, frameHex: draftFrame.hex94)
-        saveName = clean
-        scheduleDraftSave()
+        editingBaseline = FaceExpectation(name: payload.name, frameHex: payload.frameHex)
+        editingExpectedBootId = connection.bootId
+        editingExpectedGen = connection.currentFacesGeneration
+        saveName = payload.name
+        draftSaveTask?.cancel()
+        await persistDraft()
+        return true
+    }
+
+    func multiBoardSaveSnapshot(asNew: Bool, originBoardID: String?, using faceLibrary: FaceLibraryModel? = nil) -> MultiBoardFaceSaveSnapshot {
+        let pure = fromParts && library?.compose(call: selectedCall) == draftFrame
+        let overwrite = !asNew && editingFaceCanOverwrite && editingLocation == .board ? editingFaceId : nil
+        var baseline = editingBaseline
+        var source = overwrite != nil ? boardFaceSaveSource : nil
+        if let overwrite, let original = baseline,
+           let renamed = faceLibrary?.confirmedRenameBaseline(id: overwrite, from: original) {
+            baseline = renamed
+            source?.expectedBootId = faceLibrary?.boardBootId
+            source?.expectedGen = faceLibrary?.boardFacesGen
+        }
+        return MultiBoardFaceSaveSnapshot(frameHex: draftFrame.hex94, type: pure ? "parts" : "custom",
+                                           call: pure ? .init(leye: selectedCall.leye, reye: selectedCall.reye,
+                                                              mouth: selectedCall.mouth, cheek: selectedCall.cheek) : nil,
+                                           originBoardID: originBoardID, editingFaceID: editingFaceId,
+                                           overwriteID: overwrite, overwriteSource: source,
+                                           expectation: overwrite != nil ? baseline : nil)
+    }
+
+    /// Only the original primary editor can adopt its own confirmed result.
+    /// Remote-only saves never change its overwrite target or conflict baseline.
+    @discardableResult
+    func adoptMultiBoardSave(_ operation: MultiBoardFaceSaveCoordinator.Operation,
+                             connection: BoardConnection) async -> Bool {
+        let pure = fromParts && library?.compose(call: selectedCall) == draftFrame
+        let currentCall: SavedFace.CallIds? = pure ? .init(leye: selectedCall.leye, reye: selectedCall.reye,
+                                                           mouth: selectedCall.mouth, cheek: selectedCall.cheek) : nil
+        guard operation.snapshot.originBoardID == connection.boardKey,
+              saveName == operation.name,
+              (pure ? "parts" : "custom") == operation.snapshot.type,
+              currentCall == operation.snapshot.call,
+              draftFrame.hex94 == operation.snapshot.frameHex,
+              editingFaceId == operation.snapshot.editingFaceID,
+              let confirmed = operation.targets.first(where: { $0.id == connection.boardKey && $0.status == .confirmed }),
+              confirmed.generation == connection.connectionGeneration,
+              confirmed.carrier == connection.carrierGeneration else { return false }
+        saveName = operation.name
+        didSave(as: confirmed.payload.id, on: BoardFaceSaveSource(boardID: confirmed.id,
+                                                                  generation: confirmed.generation,
+                                                                  expectedBootId: connection.bootId,
+                                                                  expectedGen: connection.currentFacesGeneration))
+        draftSaveTask?.cancel()
+        await persistDraft()
         return true
     }
 
@@ -886,6 +1073,8 @@ final class ControlViewModel {
         sentGeneration = nil
         userHasEdited = true
         editingFaceId = face.id
+        editingExpectedBootId = nil
+        editingExpectedGen = nil
         editingBaseline = FaceExpectation(name: face.name, frameHex: frame.hex94)
         editingLocation = .board
         editingBoardID = draftBoardID
@@ -909,6 +1098,8 @@ final class ControlViewModel {
     }
 
     func startNewFace() {
+        editingExpectedBootId = nil
+        editingExpectedGen = nil
         editingFaceId = nil
         editingBaseline = nil
         editingBoardID = nil
@@ -933,6 +1124,8 @@ final class ControlViewModel {
             editingFaceCanOverwrite = true
         }
         editingBaseline = FaceExpectation(name: saveName, frameHex: draftFrame.hex94)
+        editingExpectedBootId = destination.expectedBootId
+        editingExpectedGen = destination.expectedGen
     }
 
     // MARK: Board display synchronization

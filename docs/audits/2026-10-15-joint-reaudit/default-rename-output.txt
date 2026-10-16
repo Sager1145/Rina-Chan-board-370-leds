@@ -1,0 +1,2 @@
+REPRO R4: production CMD face_rename commits a default face rename; App rejects the same action
+PASS faces conditional writes, immutable RAM pages, generation invalidation, bulk commit conflict, display unchanged

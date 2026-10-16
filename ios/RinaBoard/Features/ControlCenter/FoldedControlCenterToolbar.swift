@@ -103,10 +103,14 @@ private struct BoardToolbarTitleVisibility: ViewModifier {
 private struct BoardToolbarCompressionPreference: ViewModifier {
     let enabled: Bool
     @ViewBuilder func body(content: Content) -> some View {
+        #if targetEnvironment(macCatalyst)
+        content
+        #else
         if #available(iOS 27.1, *), enabled {
             content.toolbarVerticalCompressionBehavior(.prefersTabBar)
         } else {
             content
         }
+        #endif
     }
 }

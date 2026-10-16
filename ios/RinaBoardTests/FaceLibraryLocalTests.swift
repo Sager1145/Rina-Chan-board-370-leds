@@ -77,7 +77,7 @@ final class FaceLibraryLocalTests: XCTestCase {
     /// `frameBytes.map(UInt8.init)`, which traps on a value outside 0...255
     /// that lenient decoding otherwise preserves (R08). It must return nil
     /// instead, via `SavedFace.packedFrame`.
-    func testBoardFaceFrameReturnsNilForOutOfRangeFrameBytes() async throws {
+    func testBoardReadRejectsOutOfRangeFrameBytesBeforePublication() async throws {
         let model = FaceLibraryModel()
         let connection = BoardConnection()
         let transport = FakeRinaTransport()
@@ -93,8 +93,9 @@ final class FaceLibraryLocalTests: XCTestCase {
         let reloaded = await reloadTask.value
         transport.automaticallyReplies = true
 
-        XCTAssertTrue(reloaded)
-        XCTAssertEqual(model.face(id: "bad", in: .board)?.frameBytes, [999])
+        XCTAssertFalse(reloaded)
+        XCTAssertNil(model.face(id: "bad", in: .board))
+        XCTAssertNotNil(model.errorMessage)
         XCTAssertNil(model.boardFaceFrame(id: "bad", index: nil, generation: connection.connectionGeneration))
         connection.disconnect()
     }

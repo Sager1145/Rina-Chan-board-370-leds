@@ -6,6 +6,8 @@ RinaChanBoard 使用 **ESP32-S3 + 370 颗 WS2812B LED**，通过 RinaBoard 原�
 
 [3D 打印模型](https://makerworld.com/zh/models/2569348-rina-chan-board-rina-board-rina-chan-board#profileId-2832058) · [Apple 应用开发说明](ios/README.zh-CN.md) · [Mac 构建与使用](docs/mac/README.md) · [RinaLink 协议](docs/RINALINK_PROTOCOL_V1.md)
 
+[当前功能、接口与固件 × iOS 联合架构审计](docs/FUNCTION_INTERFACE_JOINT_REAUDIT_2026_10_15_ZH.md)（2026-10-15，重新审计，含 44 个命令、保存链路与数据流收敛建议）。
+
 ## 可以做什么
 
 ### 画出、组合并收藏表情

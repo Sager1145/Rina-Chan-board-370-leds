@@ -299,7 +299,7 @@ public struct FaceExpectation: Sendable, Equatable, Codable {
 /// `face_upsert`'s `{"face": {...}}` payload (§7.2): create when `id` is nil
 /// (server assigns the id, appends with `order = max+1`), update in place
 /// when `id` matches an existing non-default face.
-public struct FaceUpsertPayload: Sendable, Equatable {
+public struct FaceUpsertPayload: Sendable, Equatable, Codable {
     public var id: String?
     public var name: String
     /// `"custom"` or `"parts"` (`SavedFace.Kind.rawValue`); defaults cannot be upserted.
@@ -310,6 +310,9 @@ public struct FaceUpsertPayload: Sendable, Equatable {
     /// Optimistic-lock check against the stored face's content as it was when
     /// this edit began; the board rejects with 409 if it no longer matches.
     public var expect: FaceExpectation?
+    public var partsCatalog: String?
+    public var partsVersion: Int?
+    public var partsReferenceOnly: Bool = false
 
     public init(
         id: String? = nil, name: String, type: String, frameHex: String, call: SavedFace.CallIds? = nil,
@@ -325,6 +328,9 @@ public struct FaceUpsertPayload: Sendable, Equatable {
 
     var jsonObject: [String: Any] {
         var obj: [String: Any] = ["name": name, "type": type, "frameHex": frameHex]
+        if partsReferenceOnly { obj.removeValue(forKey: "frameHex") }
+        if let partsCatalog { obj["partsCatalog"] = partsCatalog }
+        if let partsVersion { obj["partsVersion"] = partsVersion }
         if let id { obj["id"] = id }
         if let call {
             var callObj: [String: Any] = [:]

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import RinaCore
 
 enum FaceLibraryLocation: String, CaseIterable, Codable, Hashable, Identifiable {
@@ -9,7 +10,7 @@ enum FaceLibraryLocation: String, CaseIterable, Codable, Hashable, Identifiable 
     var title: String {
         switch self {
         case .local: NSLocalizedString("本机", comment: "device face library location")
-        case .board: NSLocalizedString("当前面板", comment: "connected board face library location")
+        case .board: NSLocalizedString("板上表情", comment: "connected board face library location")
         }
     }
 }
@@ -21,6 +22,8 @@ struct FaceEditRequest: Identifiable, Equatable {
     let asCopy: Bool
     let boardID: String?
     let boardGeneration: UUID?
+    var expectedBootId: String? = nil
+    var expectedGen: Int? = nil
 }
 
 struct FaceBatchResult: Equatable {
@@ -31,17 +34,19 @@ struct FaceBatchResult: Equatable {
     var failedCount: Int { failures.count }
 }
 
-struct BoardFaceSaveSource: Equatable {
+struct BoardFaceSaveSource: Equatable, Codable {
     let boardID: String?
     let generation: UUID?
+    var expectedBootId: String? = nil
+    var expectedGen: Int? = nil
 }
 
 private struct LocalDeletion {
     let faces: [SavedFace]
 }
 
-/// App-scoped state for the independent device library and the face document
-/// belonging to the current board connection.
+/// The current board's confirmed library, with isolated legacy-store helpers
+/// retained for explicit migration and compatibility. Drafts live separately.
 @Observable
 @MainActor
 final class FaceLibraryModel {
@@ -62,6 +67,11 @@ final class FaceLibraryModel {
     /// Unlike `boardGeneration`, this survives a reconnect to the same board.
     private(set) var boardID: String?
     private(set) var boardGeneration: UUID?
+    private(set) var boardBootId: String?
+    private(set) var boardFacesGen: Int?
+    /// Only an explicitly confirmed rename in this app may advance an editor baseline.
+    private var confirmedRenames: [String: (before: FaceExpectation, after: FaceExpectation, bootId: String?, gen: Int?)] = [:]
+    private var boardSaveBusy = false
 
     var isLoading = false
     var isSaving = false
@@ -74,6 +84,7 @@ final class FaceLibraryModel {
     var pendingEditRequest: FaceEditRequest?
 
     private let localStore: any LocalFaceStoring
+    private let partsLibraryForSaving: PartsLibrary?
     private var localDeletion: LocalDeletion?
     private var nextEditRequestID: UInt64 = 1
     private var localLoadWaiters: [CheckedContinuation<Void, Never>] = []
@@ -93,6 +104,7 @@ final class FaceLibraryModel {
 
     init(localStore: any LocalFaceStoring = LocalFaceStore()) {
         self.localStore = localStore
+        self.partsLibraryForSaving = try? RinaResources.partsLibrary(bundle: .main)
     }
 
     private func beginLocalMutation() async {
@@ -113,6 +125,7 @@ final class FaceLibraryModel {
 
     enum SaveOutcome: Equatable {
         case saved(id: String?)
+        case pending(id: String)
         case failed
     }
 
@@ -215,7 +228,6 @@ final class FaceLibraryModel {
                 localDocument = candidate
             } else {
                 let candidate = bundledDefaults(bundle: bundle)
-                try await localStore.save(candidate)
                 localDocument = candidate
             }
             isLocalLoaded = true
@@ -284,7 +296,6 @@ final class FaceLibraryModel {
                 localDocument = candidate
             } else {
                 let candidate = bundledDefaults(bundle: bundle)
-                try await localStore.save(candidate)
                 localDocument = candidate
             }
             isLocalLoaded = true
@@ -330,6 +341,7 @@ final class FaceLibraryModel {
         isLoading = false
         faceDocument = FaceDocument()
         boardGeneration = nil
+        confirmedRenames.removeAll()
     }
 
     @discardableResult
@@ -356,9 +368,22 @@ final class FaceLibraryModel {
             let data = try await connection.getFaces()
             guard generation == connection.connectionGeneration,
                   revision == boardLoadRevision else { return false }
-            faceDocument = try FaceDocument(jsonData: data)
+            guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  envelope["category"] as? String == FaceDocument.expectedCategory,
+                  envelope["faces"] is [[String: Any]] else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let parsed = try FaceDocument.decodedForImport(jsonData: data)
+            guard parsed.skippedFaceCount == 0,
+                  parsed.document.faces.allSatisfy({ $0.packedFrame != nil }),
+                  Set(parsed.document.faces.map(\.id)).count == parsed.document.faces.count else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            faceDocument = parsed.document
             boardID = currentBoardID
             boardGeneration = generation
+            boardBootId = connection.bootId
+            boardFacesGen = connection.currentFacesGeneration
             return true
         } catch is CancellationError {
             return false
@@ -387,7 +412,9 @@ final class FaceLibraryModel {
             location: location,
             asCopy: asCopy || isProtected(face),
             boardID: location == .board ? boardID : nil,
-            boardGeneration: location == .board ? connectionGeneration : nil
+            boardGeneration: location == .board ? connectionGeneration : nil,
+            expectedBootId: location == .board ? boardBootId : nil,
+            expectedGen: location == .board ? boardFacesGen : nil
         )
     }
 
@@ -457,9 +484,134 @@ final class FaceLibraryModel {
 
     // MARK: Save / update
 
+    /// Metadata never gets to replace the actual pixel snapshot. All save
+    /// entry points, including legacy migration/copy, share this check.
+    func canonicalPayload(_ input: FaceUpsertPayload, supportsPartsReferences: Bool) -> FaceUpsertPayload {
+        var payload = input
+        guard payload.type == "parts" else { return payload }
+        let selected: PartsCall? = payload.call.flatMap { call in
+            guard let leye = call.leye, let reye = call.reye,
+                  let mouth = call.mouth, let cheek = call.cheek else { return nil }
+            return PartsCall(leye: leye, reye: reye, mouth: mouth, cheek: cheek)
+        }
+        let pureParts: Bool
+        if let selected, let library = partsLibraryForSaving,
+           PartGroup.allCases.allSatisfy({ library.call.ids[$0.rawValue]?.contains(selected[$0]) == true }) {
+            pureParts = library.compose(call: selected).hex94 == payload.frameHex
+        } else { pureParts = false }
+        if pureParts && supportsPartsReferences {
+            payload.partsReferenceOnly = true
+            payload.partsCatalog = "rina_expression_parts_370_runtime_v4"
+            payload.partsVersion = 4
+        } else {
+            payload.partsReferenceOnly = false
+            payload.partsCatalog = nil
+            payload.partsVersion = nil
+            if !pureParts {
+                payload.type = "custom"
+                payload.call = nil
+            }
+        }
+        return payload
+    }
+
+    private struct PendingCreate: Codable {
+        var payload: FaceUpsertPayload
+        var source: BoardFaceSaveSource
+    }
+    private let pendingCreateStorage = DraftStorage.shared
+
+    /// Direct list operations (duplicate/copy) use the same durable identity
+    /// rule as the editor. A repeated explicit action first reconciles its
+    /// prior snapshot instead of issuing another unidentified creation.
     @discardableResult
     func save(_ payload: FaceUpsertPayload, source: BoardFaceSaveSource? = nil,
-              connection: BoardConnection) async -> SaveOutcome {
+              createOnly: Bool = false, connection: BoardConnection) async -> SaveOutcome {
+        let payload = canonicalPayload(payload, supportsPartsReferences: connection.supportsPartsReferences)
+        guard !boardSaveBusy else {
+            errorMessage = NSLocalizedString("正在保存，请稍候", comment: "face write already active")
+            return .failed
+        }
+        boardSaveBusy = true
+        defer { boardSaveBusy = false }
+        guard payload.id == nil else {
+            return await saveBoardPayload(payload, source: source, createOnly: createOnly, connection: connection)
+        }
+        guard connection.connectionState == .connected else { return .failed }
+        if connection.supportsConditionalFaceWrites && connection.currentFacesGeneration == nil {
+            guard await reload(connection: connection) else { return .failed }
+        }
+        let target = source ?? BoardFaceSaveSource(boardID: connection.boardKey,
+                                                   generation: connection.connectionGeneration,
+                                                   expectedBootId: connection.bootId,
+                                                   expectedGen: connection.currentFacesGeneration)
+        do {
+            let data = try await pendingCreateStorage.read("board_face_creates")
+            var pending = try data.map { try JSONDecoder().decode([PendingCreate].self, from: $0) } ?? []
+            // A pending create that this board's loaded list already shows is
+            // confirmed. Retire it here: once its copy is visible the next copy
+            // gets another name, so it would never be matched again.
+            if boardDocumentBelongs(to: connection) {
+                let count = pending.count
+                pending.removeAll {
+                    Self.sameBoard(sourceBoardID: $0.source.boardID, sourceGeneration: $0.source.generation,
+                                   currentBoardID: connection.boardKey, currentGeneration: connection.connectionGeneration)
+                        && matchesSavedPayload($0.payload)
+                }
+                if pending.count != count {
+                    try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
+                }
+            }
+            let existing = pending.firstIndex {
+                Self.sameBoard(sourceBoardID: $0.source.boardID, sourceGeneration: $0.source.generation,
+                               currentBoardID: connection.boardKey, currentGeneration: connection.connectionGeneration)
+                    && $0.payload.name == cleanName(payload.name) && $0.payload.frameHex == payload.frameHex
+                    && $0.payload.type == payload.type && Self.callsEqual($0.payload.call, payload.call)
+            }
+            var operation: PendingCreate
+            if let existing {
+                operation = pending[existing]
+                guard operation.payload.id != nil else { throw CocoaError(.fileReadCorruptFile) }
+                guard await reload(connection: connection) else { return .pending(id: operation.payload.id!) }
+                if matchesSavedPayload(operation.payload) {
+                    pending.remove(at: existing)
+                    try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
+                    return .saved(id: operation.payload.id)
+                }
+                guard face(id: operation.payload.id!, in: .board) == nil,
+                      connection.supportsConditionalFaceWrites else {
+                    errorMessage = NSLocalizedString("结果待确认或目标已改变：请检查板上表情", comment: "direct create needs reconciliation")
+                    return .pending(id: operation.payload.id!)
+                }
+                operation.source = BoardFaceSaveSource(boardID: connection.boardKey,
+                                                       generation: connection.connectionGeneration,
+                                                       expectedBootId: connection.bootId,
+                                                       expectedGen: connection.currentFacesGeneration)
+                pending[existing] = operation
+            } else {
+                var submitted = payload
+                submitted.id = "user_" + UUID().uuidString.lowercased()
+                submitted.name = cleanName(submitted.name)
+                operation = PendingCreate(payload: submitted, source: target)
+                pending.append(operation)
+            }
+            try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
+            let result = await saveBoardPayload(operation.payload, source: operation.source,
+                                                createOnly: true, connection: connection)
+            if case .saved = result {
+                pending.removeAll { $0.payload.id == operation.payload.id }
+                try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
+            }
+            return result
+        } catch {
+            errorMessage = error.localizedDescription
+            return .failed
+        }
+    }
+
+    @discardableResult
+    private func saveBoardPayload(_ payload: FaceUpsertPayload, source: BoardFaceSaveSource? = nil,
+              createOnly: Bool = false, connection: BoardConnection) async -> SaveOutcome {
         errorMessage = nil
         var payload = payload
         // Enforce the firmware's byte limit at the final wire boundary too;
@@ -482,59 +634,65 @@ final class FaceLibraryModel {
                 return .failed
             }
         }
+        if payload.id == nil { payload.id = "user_" + UUID().uuidString.lowercased() }
+        guard let targetID = payload.id else { return .failed }
+        let order = faceDocument.faces.first(where: { $0.id == targetID })?.order
+            ?? (createOnly && boardGeneration == connection.connectionGeneration
+                ? (faceDocument.faces.map(\.order).max() ?? 0) + 1 : nil)
         isSaving = true
         defer { isSaving = false }
-        // Captured immediately before the awaited board-mutating call (R07):
-        // if the model has switched to a different board by the time it
-        // returns, the save already happened for real on `connection`, but
-        // the shared `faceDocument`/`boardID`/`boardGeneration` now belong to
-        // whatever board is current and must not be overwritten with it.
+        let generation = connection.connectionGeneration
         let revision = boardLoadRevision
         do {
-            _ = try await connection.faceUpsert(payload)
-            guard boardStillShown(connection, since: revision) else { return .saved(id: payload.id) }
-            let savedFrame = PackedFrame(hex94: payload.frameHex)
-            if let id = payload.id, revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation,
-               let frame = savedFrame,
-               let index = faceDocument.faces.firstIndex(where: { $0.id == id }) {
-                faceDocument.faces[index].name = payload.name
-                faceDocument.faces[index].type = SavedFace.Kind(rawValue: payload.type) ?? .custom
-                faceDocument.faces[index].frameBytes = frame.bytes.map(Int.init)
-                faceDocument.faces[index].updatedAt = timestamp()
-                faceDocument.faces[index].call = payload.call
-                boardID = connection.boardKey
-                boardGeneration = connection.connectionGeneration
-                return .saved(id: id)
+            _ = try await connection.faceUpsert(payload, createOnly: createOnly,
+                                                expectedBootId: source?.expectedBootId,
+                                                expectedGen: source?.expectedGen)
+            guard connection.connectionGeneration == generation,
+                  boardStillShown(connection, since: revision) else { return .pending(id: targetID) }
+            guard await reload(connection: connection) else {
+                errorMessage = NSLocalizedString("结果待确认：请连接原面板后再次保存以核对", comment: "face save needs readback")
+                return .pending(id: targetID)
             }
-            await reload(connection: connection)
-            if payload.id == nil, let frame = savedFrame {
-                let bytes = frame.bytes.map(Int.init)
-                let matched = faceDocument.faces.last { $0.name == payload.name && $0.frameBytes == bytes }
-                return .saved(id: matched?.id)
+            guard matchesSavedPayload(payload, expectedOrder: order) else {
+                errorMessage = NSLocalizedString("保存核对失败：板上内容与提交不同，请重新载入或另存", comment: "face save readback conflict")
+                return .pending(id: targetID)
             }
-            return .saved(id: payload.id)
+            return .saved(id: targetID)
         } catch {
-            guard boardStillShown(connection, since: revision) else { return .failed }
-            // A reply lost after the write actually landed (ack dropped, link
-            // hiccup) surfaces here as some transport error, not necessarily
-            // a 409 — but if the board rejected specifically because our own
-            // write already happened, a reload proves it and the retry the
-            // caller would otherwise do is pointless (and would 409 again).
-            if let linkError = error as? RinaLinkError, linkError.code == 409,
-               let id = payload.id, payload.expect != nil {
-                await reload(connection: connection)
-                if boardStillShown(connection, since: revision),
-                   let stored = faceDocument.faces.first(where: { $0.id == id }),
-                   stored.name == payload.name,
-                   stored.packedFrame?.hex94 == payload.frameHex,
-                   Self.callsEqual(stored.type == .parts ? stored.call : nil, payload.call) {
+            guard generation == connection.connectionGeneration,
+                  boardStillShown(connection, since: revision) else { return .pending(id: targetID) }
+            if let linkError = error as? RinaLinkError,
+               let code = linkError.code, [400, 404, 409].contains(code) {
+                await handleFaceOpError(error, connection: connection)
+                if matchesSavedPayload(payload, expectedOrder: order) {
                     errorMessage = nil
-                    return .saved(id: id)
+                    return .saved(id: targetID)
                 }
+                return .failed
             }
-            await handleFaceOpError(error, connection: connection)
-            return .failed
+            errorMessage = NSLocalizedString("结果待确认：请连接原面板后再次保存以核对", comment: "face save needs readback")
+            return .pending(id: targetID)
         }
+    }
+
+    func matchesSavedPayload(_ payload: FaceUpsertPayload, expectedOrder: Int? = nil) -> Bool {
+        guard let face = faceDocument.faces.first(where: { $0.id == payload.id }),
+              face.name == payload.name, face.type.rawValue == payload.type,
+              face.packedFrame?.hex94 == payload.frameHex,
+              expectedOrder == nil || face.order == expectedOrder,
+              Self.callsEqual(face.type == .parts ? face.call : nil, payload.call) else { return false }
+        if payload.partsReferenceOnly {
+            return face.partsCatalog == payload.partsCatalog && face.partsVersion == payload.partsVersion
+        }
+        return true
+    }
+
+    func confirmedRenameBaseline(id: String, from baseline: FaceExpectation) -> FaceExpectation? {
+        guard let rename = confirmedRenames[id], rename.before == baseline,
+              rename.bootId == boardBootId, rename.gen == boardFacesGen,
+              let current = face(id: id, in: .board),
+              current.name == rename.after.name, current.packedFrame?.hex94 == rename.after.frameHex else { return nil }
+        return rename.after
     }
 
     /// Treats `nil` and an all-empty `CallIds` as equal: `face_upsert`
@@ -646,6 +804,11 @@ final class FaceLibraryModel {
             return await commitLocal(candidate)
         case .board:
             guard await validateBoard(connection) else { return false }
+            guard let current = self.face(id: face.id, in: .board),
+                  current.name == face.name, current.packedFrame == face.packedFrame else {
+                errorMessage = NSLocalizedString("此表情已在别处被修改：请重新载入后再操作", comment: "stale face action")
+                return false
+            }
             // Captured after `validateBoard`'s own possible reload (R07): the
             // signal for "did the board change under us" is a bump that
             // happens strictly after this point.
@@ -660,6 +823,14 @@ final class FaceLibraryModel {
                 } else {
                     await reload(connection: connection)
                 }
+                guard let confirmed = faceDocument.faces.first(where: { $0.id == face.id }),
+                      confirmed.name == clean, confirmed.packedFrame == face.packedFrame,
+                      let frame = face.packedFrame else { return false }
+                boardBootId = connection.bootId
+                boardFacesGen = connection.currentFacesGeneration
+                confirmedRenames[face.id] = (FaceExpectation(name: face.name, frameHex: frame.hex94),
+                                             FaceExpectation(name: clean, frameHex: frame.hex94),
+                                             boardBootId, boardFacesGen)
                 return true
             } catch {
                 guard boardStillShown(connection, since: revision) else { return false }
@@ -701,7 +872,7 @@ final class FaceLibraryModel {
         for face in faces {
             switch await copy(face, from: source, to: destination, connection: connection) {
             case .saved: result.succeededIDs.append(face.id)
-            case .failed:
+            case .pending, .failed:
                 result.failures[face.id] = errorMessage
                     ?? NSLocalizedString("复制失败", comment: "saved face copy failed")
             }
@@ -725,12 +896,19 @@ final class FaceLibraryModel {
             return await deleteLocal([face]).failedCount == 0
         case .board:
             guard await validateBoard(connection) else { return false }
+            guard let current = self.face(id: face.id, in: .board),
+                  current.name == face.name, current.packedFrame == face.packedFrame else {
+                errorMessage = NSLocalizedString("此表情已在别处被修改：请重新载入后再操作", comment: "stale face action")
+                return false
+            }
             let revision = boardLoadRevision
             do {
                 _ = try await connection.faceDelete(id: face.id)
                 guard boardStillShown(connection, since: revision) else { return true }
                 if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
                     faceDocument.faces.removeAll { $0.id == face.id }
+                    boardBootId = connection.bootId
+                    boardFacesGen = connection.currentFacesGeneration
                 } else {
                     await reload(connection: connection)
                 }
@@ -872,6 +1050,8 @@ final class FaceLibraryModel {
                 guard boardStillShown(connection, since: revision) else { return true }
                 if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
                     assignOrders(defaults: defaultFaces, users: newUserOrder, in: &faceDocument)
+                    boardBootId = connection.bootId
+                    boardFacesGen = connection.currentFacesGeneration
                 } else {
                     return await reload(connection: connection)
                 }
@@ -902,6 +1082,8 @@ final class FaceLibraryModel {
             guard boardStillShown(connection, since: revision) else { return true }
             if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
                 assignOrders(defaults: [], users: newOrder, in: &faceDocument)
+                boardBootId = connection.bootId
+                boardFacesGen = connection.currentFacesGeneration
             } else {
                 return await reload(connection: connection)
             }
@@ -982,6 +1164,17 @@ final class FaceLibraryModel {
             return
         }
         var decoded = parsed.document
+        for index in decoded.faces.indices where decoded.faces[index].type == .parts {
+            let face = decoded.faces[index]
+            guard let frame = face.packedFrame else { continue }
+            let normalized = canonicalPayload(FaceUpsertPayload(id: face.id, name: face.name, type: "parts",
+                                                                 frameHex: frame.hex94, call: face.call),
+                                              supportsPartsReferences: connection.supportsPartsReferences)
+            decoded.faces[index].type = SavedFace.Kind(rawValue: normalized.type) ?? .custom
+            decoded.faces[index].call = normalized.call
+            decoded.faces[index].partsCatalog = normalized.partsCatalog
+            decoded.faces[index].partsVersion = normalized.partsVersion
+        }
         // A missing `category` already defaults to `expectedCategory` on
         // decode; only a present-but-different value (or a whole-document
         // shape the firmware doesn't recognize as a face library) is refused —
@@ -1025,17 +1218,100 @@ final class FaceLibraryModel {
         }
     }
 
+    /// Reads the original legacy store for explicit migration only. No seeding,
+    /// normalization or writes can alter the source file.
+    func legacyMigrationFaces() async -> [SavedFace] {
+        do {
+            return try await localStore.load()?.sortedFaces.filter {
+                $0.type != .default && $0.packedFrame != nil
+            } ?? []
+        } catch {
+            errorMessage = error.localizedDescription
+            return []
+        }
+    }
+
+    @discardableResult
+    func migrateLegacyFaces(_ sources: [SavedFace], to target: BoardFaceSaveSource,
+                            connection: BoardConnection) async -> FaceBatchResult {
+        var result = FaceBatchResult()
+        guard let physicalID = target.boardID, connection.supportsConditionalFaceWrites else {
+            errorMessage = NSLocalizedString("请连接支持条件写入的面板后复制旧表情", comment: "legacy migration needs verified conditional board")
+            return result
+        }
+        // The selected value snapshots are fixed by the migration sheet. Each
+        // snapshot has a deterministic target UUID equivalent, including board
+        // identity, so cancelling or relaunching never creates another copy.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        for source in sources {
+            guard connection.connectionState == .connected,
+                  connection.boardKey == physicalID,
+                  connection.connectionGeneration == target.generation else {
+                result.failures[source.id] = NSLocalizedString("连接已改变，复制已停止", comment: "migration connection changed")
+                break
+            }
+            guard let frame = source.packedFrame, let encoded = try? encoder.encode(source) else { continue }
+            var key = Data(physicalID.utf8)
+            key.append(0)
+            key.append(encoded)
+            let digest = SHA256.hash(data: key).map { String(format: "%02x", $0) }.joined()
+            let id = "migrated_" + String(digest.prefix(32))
+            let payload = canonicalPayload(FaceUpsertPayload(id: id, name: cleanName(source.name),
+                                            type: source.type == .parts ? "parts" : "custom",
+                                            frameHex: frame.hex94,
+                                            call: source.type == .parts ? source.call : nil),
+                                            supportsPartsReferences: connection.supportsPartsReferences)
+            guard await reload(connection: connection) else {
+                result.failures[source.id] = errorMessage ?? "Read failed"
+                break
+            }
+            if matchesSavedPayload(payload) {
+                result.succeededIDs.append(source.id)
+                continue
+            }
+            guard face(id: id, in: .board) == nil else {
+                result.failures[source.id] = NSLocalizedString("目标表情已改变，请先检查板上内容", comment: "migration target conflict")
+                continue
+            }
+            let cursor = BoardFaceSaveSource(boardID: physicalID,
+                                              generation: connection.connectionGeneration,
+                                              expectedBootId: connection.bootId,
+                                              expectedGen: connection.currentFacesGeneration)
+            switch await save(payload, source: cursor, createOnly: true, connection: connection) {
+            case .saved: result.succeededIDs.append(source.id)
+            case .pending, .failed:
+                result.failures[source.id] = errorMessage ?? NSLocalizedString("结果待确认", comment: "migration save pending")
+                // Keep the same deterministic target on the next explicit run.
+                report(result, action: .copy)
+                return result
+            }
+        }
+        report(result, action: .copy)
+        return result
+    }
+
     // MARK: Helpers
 
     /// A physical identity takes precedence over a link session. When either
     /// side lacks that identity, only the exact session is safe: an unknown
-    /// board after reconnect must not inherit an old face id.
+    /// board after reconnect must not inherit an old face id. `board:<id>`
+    /// and `ble:<peripheral UUID>` are bound to one device; `wifi:<host>` is
+    /// only an address that another board can answer on after a reconnect
+    /// (DHCP reuse, a shared mDNS name), so it never crosses a generation.
     nonisolated static func sameBoard(sourceBoardID: String?, sourceGeneration: UUID?,
                                       currentBoardID: String?, currentGeneration: UUID) -> Bool {
-        if sourceBoardID != nil || currentBoardID != nil {
-            return sourceBoardID != nil && sourceBoardID == currentBoardID
+        let sourcePhysical = sourceBoardID.flatMap(physicalIdentity)
+        let currentPhysical = currentBoardID.flatMap(physicalIdentity)
+        if sourcePhysical != nil || currentPhysical != nil {
+            return sourcePhysical != nil && sourcePhysical == currentPhysical
         }
+        guard sourceBoardID == currentBoardID else { return false }
         return sourceGeneration != nil && sourceGeneration == currentGeneration
+    }
+
+    nonisolated private static func physicalIdentity(_ boardKey: String) -> String? {
+        boardKey.hasPrefix("wifi:") ? nil : boardKey
     }
 
     /// False once the model has been pointed at another link since `revision`

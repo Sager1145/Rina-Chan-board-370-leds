@@ -8,6 +8,7 @@ import RinaCore
 struct ControlView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(BoardConnection.self) private var connection
+    @Environment(BoardSessionStore.self) private var sessions
     @Environment(ControlViewModel.self) private var model
     @Environment(BoardControlCenterModel.self) private var controlCenter
     @Environment(FaceLibraryModel.self) private var faceLibrary
@@ -21,7 +22,7 @@ struct ControlView: View {
     /// never scrolls the page — only the commands and parts below scroll
     /// (§16).
     @State private var isTouchingBoard = false
-    @State private var isNamingSave = false
+    @State private var namingSave: FaceSaveNamingPresentation?
     @State private var saveNameDraft = ""
     @State private var isChoosingSaveTarget = false
     /// Set by the save-target dialog; applied only when the naming sheet is
@@ -31,19 +32,33 @@ struct ControlView: View {
     /// The destination and identity are frozen the moment the naming sheet
     /// opens (Control §11.3): a reconnect or a board switch while it is open
     /// must not silently redirect an in-progress save.
-    @State private var saveLocation: FaceLibraryLocation = .local
+    @State private var saveLocation: FaceLibraryLocation = .board
     @State private var saveFrame = PackedFrame()
     @State private var saveFaceID: String?
     @State private var saveBoardSource: BoardFaceSaveSource?
+    @State private var multiSave = MultiBoardFaceSaveCoordinator()
+    @State private var pickingSaveBoards: FaceSaveTargetsPresentation?
+    @State private var selectedSaveBoards: [FrozenFaceSaveDestination] = []
+    @State private var continueNamingAfterTargets = false
+    @State private var saveMultiSnapshot: MultiBoardFaceSaveSnapshot?
+    @State private var saveResults: FaceSaveResultsPresentation?
+    @State private var preparedMultiSave = false
+    @State private var adoptedMultiOperationID: UUID?
+    @State private var adoptingMultiOperationID: UUID?
+    @State private var confirmingDiscardPendingSave = false
 
     private var isConnected: Bool { connection.connectionState == .connected }
+    private var canSaveToBoard: Bool { !FrozenFaceSaveDestination.connected(in: sessions).isEmpty }
     /// Names the save sheet's destination (DEF-05) so a title alone tells the
     /// user where the face is going, reusing `FaceLibraryLocation`'s own
     /// wording instead of inventing new terms for the same two places. Uses
     /// the frozen `saveLocation`, not the live connection state, so the title
     /// never disagrees with where the sheet is actually about to save.
     private var saveDestinationTitle: String {
-        String(format: NSLocalizedString("保存到%@", comment: "save alert title naming its destination"),
+        if !selectedSaveBoards.isEmpty {
+            return String(format: NSLocalizedString("保存到 %lld 个面板", comment: "multi-board save naming title"), Int64(selectedSaveBoards.count))
+        }
+        return String(format: NSLocalizedString("保存到%@", comment: "save alert title naming its destination"),
                saveLocation.title)
     }
     private var boardColor: Color { controlCenter.draftColor }
@@ -88,14 +103,29 @@ struct ControlView: View {
             // No navigation bar, so the list's default top margin only pushes
             // the board away from the status bar.
             .contentMargins(.top, 0, for: .scrollContent)
-            .sheet(isPresented: $isNamingSave) {
-                FaceNameEditorSheet(title: saveDestinationTitle, initialName: saveNameDraft) { name in
-                    guard model.draftFrame == saveFrame, model.editingFaceId == saveFaceID else {
+            .sheet(item: $namingSave, onDismiss: {
+                if preparedMultiSave {
+                    preparedMultiSave = false
+                    saveResults = FaceSaveResultsPresentation(startPrepared: true)
+                }
+            }) { save in
+                FaceNameEditorSheet(title: save.title, initialName: save.name) { name in
+                    guard model.draftFrame == save.frame, model.editingFaceId == save.faceID else {
                         return NSLocalizedString("编辑内容已改变，请关闭后重新保存", comment: "face changed while naming")
                     }
+                    if let snapshot = save.snapshot, !save.destinations.isEmpty {
+                        guard !model.hasPendingBoardSave else {
+                            return NSLocalizedString("请先连接原面板，核对上次单面板保存", comment: "single pending blocks multi save")
+                        }
+                        model.saveName = name
+                        guard await model.persistDraft() else { return model.draftStorageError }
+                        let prepared = await multiSave.prepare(name: name, snapshot: snapshot, destinations: save.destinations)
+                        preparedMultiSave = prepared
+                        return prepared ? nil : multiSave.errorMessage
+                    }
                     let success = await model.saveEditedFace(
-                        name: name, asNew: savesAsNew, to: saveLocation,
-                        library: faceLibrary, connection: connection, expectedBoard: saveBoardSource
+                        name: name, asNew: save.asNew, to: .board,
+                        library: faceLibrary, connection: connection, expectedBoard: save.boardSource
                     )
                     return success ? nil : (faceLibrary.errorMessage
                         ?? NSLocalizedString("保存失败，请重试", comment: "save face failed"))
@@ -103,9 +133,46 @@ struct ControlView: View {
             }
             .sensoryFeedback(.impact(weight: .light), trigger: toggleCount) { _, _ in hapticsEnabled }
             .sheet(isPresented: $isShowingSavedFaces) { savedFacesSheet }
+            .sheet(item: $pickingSaveBoards, onDismiss: {
+                if continueNamingAfterTargets {
+                    continueNamingAfterTargets = false
+                    finishNamingSetup(asNew: savesAsNew)
+                }
+            }) { picker in
+                FaceSaveTargetsSheet(destinations: picker.destinations, currentID: picker.currentID,
+                                     overwriteBoardID: picker.overwriteBoardID) { selected in
+                    selectedSaveBoards = selected
+                    continueNamingAfterTargets = true
+                }
+            }
+            .sheet(item: $saveResults) { results in
+                MultiBoardFaceSaveResultsSheet(coordinator: multiSave, startPrepared: results.startPrepared) {
+                    await adoptPrimaryMultiSaveResult()
+                }
+            }
         }
         .errorAlert(Bindable(model).errorMessage)
         .onAppear { bootLoader.beginWaterfall(count: 3) }
+        .task {
+            await multiSave.restore()
+            await adoptPrimaryMultiSaveResult()
+        }
+        .onChange(of: isConnected) { _, connected in
+            if !connected {
+                isShowingSavedFaces = false
+                if selectedSaveBoards.isEmpty && pickingSaveBoards == nil {
+                    namingSave = nil
+                    isChoosingSaveTarget = false
+                }
+            }
+        }
+        .onChange(of: connection.connectionGeneration) { _, _ in
+            isShowingSavedFaces = false
+            if selectedSaveBoards.isEmpty && pickingSaveBoards == nil {
+                namingSave = nil
+                isChoosingSaveTarget = false
+            }
+        }
         .task(id: isConnected && scenePhase == .active ? connection.connectionGeneration : nil) {
             guard isConnected, scenePhase == .active else { return }
             await model.runDisplayRefreshLoop(connection: connection)
@@ -214,10 +281,10 @@ struct ControlView: View {
                 }
                 .disabled(!isConnected || model.isSending)
 
-                Button {
-                    isShowingSavedFaces = true
-                } label: {
-                    CommandChip("保存列表", systemImage: "list.bullet.rectangle")
+                if isConnected {
+                    Button { isShowingSavedFaces = true } label: {
+                        CommandChip("板上表情", systemImage: "list.bullet.rectangle")
+                    }
                 }
 
                 Button {
@@ -225,6 +292,7 @@ struct ControlView: View {
                 } label: {
                     CommandChip("保存", systemImage: "square.and.arrow.down.fill")
                 }
+                .disabled(!canSaveToBoard || faceLibrary.isSaving || multiSave.isRunning)
                 .confirmationDialog("保存表情", isPresented: $isChoosingSaveTarget) {
                     Button("覆盖原表情") { beginNaming(asNew: false) }
                     Button("另存为新表情") { beginNaming(asNew: true) }
@@ -233,6 +301,26 @@ struct ControlView: View {
             }
             .buttonStyle(.pill)
             .pillButtonRow()
+            if multiSave.hasRetainedResult {
+                Button(multiSave.allConfirmed ? "查看上次保存结果" : "继续上次保存", systemImage: "clock.arrow.circlepath") {
+                    saveResults = FaceSaveResultsPresentation(startPrepared: false)
+                }
+            }
+            if model.hasPendingBoardSave {
+                Button("放弃待确认保存", systemImage: "xmark.circle", role: .destructive) {
+                    confirmingDiscardPendingSave = true
+                }
+                .disabled(faceLibrary.isSaving)
+                .confirmationDialog("放弃待确认保存？", isPresented: $confirmingDiscardPendingSave,
+                                    titleVisibility: .visible) {
+                    Button("放弃待确认保存", role: .destructive) {
+                        Task { await model.discardPendingBoardSave() }
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: {
+                    Text("不会再核对或重试上次保存，也不会撤回；面板上可能已有该表情，请稍后在其表情列表中检查。当前画面会保留。")
+                }
+            }
         }
     }
 
@@ -333,12 +421,23 @@ struct ControlView: View {
         }
     }
 
-    /// Overwrite vs. save-as is decided here, after the tap: only offered
-    /// when the edited face can actually be overwritten, and — when its
-    /// origin is the board but the board is offline right now — overwrite is
-    /// not possible at all (§11.3), so the choice is skipped entirely and the
-    /// draft goes straight to naming as a new (local) face.
+    /// Existing editable board faces offer overwrite or a separate new copy.
     private func beginSave() {
+        guard canSaveToBoard else { return }
+        selectedSaveBoards = []
+        saveMultiSnapshot = nil
+        if multiSave.hasRetainedResult {
+            saveResults = FaceSaveResultsPresentation(startPrepared: false)
+            return
+        }
+        if model.hasPendingBoardSave {
+            guard isConnected else {
+                model.errorMessage = NSLocalizedString("请先连接原面板，核对上次保存", comment: "pending single board save must be reconciled first")
+                return
+            }
+            finishNamingSetup(asNew: false, pendingName: model.pendingBoardSaveName)
+            return
+        }
         if model.canOverwriteEditingFace,
            !(model.editingLocation == .board && !isConnected) {
             isChoosingSaveTarget = true
@@ -351,15 +450,51 @@ struct ControlView: View {
     /// identity the moment the naming sheet opens, so a reconnect or board
     /// switch that happens while it is open can never redirect this save.
     private func beginNaming(asNew: Bool) {
+        guard canSaveToBoard else { return }
         savesAsNew = asNew
-        saveNameDraft = model.saveName
-        saveFrame = model.draftFrame
-        saveFaceID = model.editingFaceId
-        saveLocation = model.suggestedSaveLocation(asNew: asNew, isConnected: isConnected)
-        saveBoardSource = saveLocation == .board
-            ? BoardFaceSaveSource(boardID: connection.boardKey, generation: connection.connectionGeneration)
-            : nil
-        isNamingSave = true
+        let inventory = FrozenFaceSaveDestination.connected(in: sessions)
+        if FaceSaveDestinationSelection.requiresPicker(inventory, activeConnection: connection) {
+            saveNameDraft = model.saveName
+            saveFrame = model.draftFrame
+            saveFaceID = model.editingFaceId
+            saveMultiSnapshot = model.multiBoardSaveSnapshot(asNew: asNew, originBoardID: connection.boardKey ?? model.draftBoardID, using: faceLibrary)
+            pickingSaveBoards = FaceSaveTargetsPresentation(destinations: inventory,
+                currentID: saveMultiSnapshot?.originBoardID,
+                overwriteBoardID: saveMultiSnapshot?.overwriteSource?.boardID)
+            return
+        }
+        finishNamingSetup(asNew: asNew)
+    }
+
+    private func finishNamingSetup(asNew: Bool, pendingName: String? = nil) {
+        guard canSaveToBoard else { return }
+        savesAsNew = asNew
+        if selectedSaveBoards.isEmpty {
+            saveNameDraft = model.saveName
+            saveFrame = model.draftFrame
+            saveFaceID = model.editingFaceId
+            saveMultiSnapshot = nil
+        }
+        saveLocation = .board
+        saveBoardSource = BoardFaceSaveSource(boardID: connection.boardKey, generation: connection.connectionGeneration)
+        namingSave = FaceSaveNamingPresentation(title: saveDestinationTitle, name: pendingName ?? saveNameDraft,
+            frame: saveFrame, faceID: saveFaceID, asNew: asNew, boardSource: saveBoardSource,
+            snapshot: saveMultiSnapshot, destinations: selectedSaveBoards)
+    }
+
+    private func adoptPrimaryMultiSaveResult() async {
+        guard let operation = multiSave.operation, adoptedMultiOperationID != operation.id,
+              adoptingMultiOperationID != operation.id else { return }
+        let current = connection
+        guard operation.snapshot.originBoardID == current.boardKey,
+              operation.targets.contains(where: { $0.id == current.boardKey && $0.status == .confirmed }) else { return }
+        adoptingMultiOperationID = operation.id
+        defer { adoptingMultiOperationID = nil }
+        if await model.adoptMultiBoardSave(operation, connection: current) {
+            adoptedMultiOperationID = operation.id
+            guard current === connection, operation.snapshot.originBoardID == current.boardKey else { return }
+            _ = await faceLibrary.reload(connection: current)
+        }
     }
 
     // MARK: §19 Face parts

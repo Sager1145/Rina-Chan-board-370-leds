@@ -48,30 +48,18 @@ final class FaceLibraryLoadEdgeTests: XCTestCase {
         XCTAssertEqual(outcome, .failed, "Saving must stay refused while the on-disk file is known partially unreadable")
     }
 
-    // MARK: reloadLocal must not publish a fallback before it is durably saved
-
-    /// `reloadLocal`'s no-file branch used to assign `localDocument` to the
-    /// bundled defaults and only afterwards try to save them; if that save
-    /// failed, memory had already been overwritten. It must build the
-    /// candidate, persist it, and only then publish — so a failed save here
-    /// leaves the previously loaded document untouched.
-    func testReloadLocalNoFileBranchDoesNotPublishBeforeSaveSucceeds() async throws {
+    /// The retired local library is never seeded or rewritten just because
+    /// its source file is missing; only explicit board migration reads it.
+    func testReloadLocalMissingFileDoesNotCreateOrRewriteLegacyStore() async throws {
         let original = FaceDocument(faces: [face(id: "orig", name: "Original", led: 3)])
         let store = NilThenFailSaveLocalFaceStore(firstLoad: original)
         let model = FaceLibraryModel(localStore: store)
-
         await model.loadLocalIfNeeded()
-        XCTAssertTrue(model.isLocalLoaded)
-        XCTAssertTrue(model.faces(in: .local).contains { $0.id == "orig" })
-        let afterFirstLoad = model.localDocument
-
         await model.reloadLocal()
-
-        XCTAssertTrue(model.isLocalLoaded,
-                      "A reload whose save failed must not un-load a previously trustworthy library")
-        XCTAssertEqual(model.localDocument, afterFirstLoad,
-                       "A reload whose save failed must not replace the in-memory document with the unsaved fallback")
-        XCTAssertNotNil(model.errorMessage)
+        let writes = await store.saveCalls
+        XCTAssertEqual(writes, 0)
+        XCTAssertTrue(model.isLocalLoaded)
+        XCTAssertNil(model.errorMessage)
     }
 
     // MARK: LocalFaceStore itself
@@ -176,6 +164,7 @@ private actor PartiallyUnreadableLocalFaceStore: LocalFaceStoring {
 private actor NilThenFailSaveLocalFaceStore: LocalFaceStoring {
     private let firstLoad: FaceDocument
     private var loadCount = 0
+    private(set) var saveCalls = 0
 
     init(firstLoad: FaceDocument) {
         self.firstLoad = firstLoad
@@ -187,6 +176,7 @@ private actor NilThenFailSaveLocalFaceStore: LocalFaceStoring {
     }
 
     func save(_ document: FaceDocument) async throws {
+        saveCalls += 1
         throw NilThenFailSaveLocalFaceStoreError.saveFailed
     }
 }

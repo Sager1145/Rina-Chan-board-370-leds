@@ -29,7 +29,7 @@ final class AcceptanceUITests: XCTestCase {
             + deterministicLaunchArguments + extra
         app.launch()
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
-            app.tabBars.firstMatch.exists || app.buttons["lightbulb.fill"].firstMatch.exists
+            app.descendants(matching: .any)["app.content"].firstMatch.exists
         }, object: app)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
         XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 10),
@@ -55,20 +55,35 @@ final class AcceptanceUITests: XCTestCase {
     }
 
     private func mainTab(at index: Int) -> XCUIElement {
-        if !app.tabBars.firstMatch.exists {
-            let identifiers = ["lightbulb.fill", "t.square.fill", "waveform", "music.note", "gearshape.fill"]
-            return app.buttons[identifiers[index]].firstMatch
-        }
-        return app.tabBars.buttons.element(boundBy: index)
+        let identifiers = ["tab.control", "tab.text", "tab.lipSync", "tab.presetLive", "tab.settings"]
+        let identified = app.buttons[identifiers[index]].firstMatch
+        if identified.exists { return identified }
+        if app.tabBars.firstMatch.exists { return app.tabBars.buttons.element(boundBy: index) }
+        // Duo's native vertical rail exposes buttons without a TabBar node.
+        let labels = [
+            ["表情显示", "表情顯示", "Expressions", "表情表示"],
+            ["文字滚动", "文字滾動", "Text", "文字スクロール"],
+            ["口型识别", "嘴形识别", "嘴型辨識", "Speak", "口形認識"],
+            ["演出", "Live", "ライブ"],
+            ["设定", "設定", "Settings"]
+        ]
+        return app.buttons.matching(NSPredicate(format: "label IN %@", labels[index])).firstMatch
+    }
+
+    func testRootContentMountsOnActiveDisplay() {
+        app.launchArguments = ["-initialTab", "control"] + deterministicLaunchArguments
+        app.launch()
+        let content = app.descendants(matching: .any)["app.content"].firstMatch
+        XCTAssertTrue(content.waitForExistence(timeout: 15), app.debugDescription)
     }
 
     func testFiveTabsRemainReachableOfflineAndAfterBackgroundReturn() {
         launch()
-        for tab in ["文字滚动", "口型识别", "演出", "设定", "表情显示"] {
-            let item = app.tabBars.buttons[tab]
+        for index in [1, 2, 3, 4, 0] {
+            let item = mainTab(at: index)
             XCTAssertTrue(item.waitForExistence(timeout: 3))
             item.tap()
-            XCTAssertTrue(item.isSelected, "The \(tab) tab did not become selected")
+            XCTAssertTrue(item.isSelected, "Tab \(index) did not become selected")
         }
         let clearFrame = app.buttons
             .matching(NSPredicate(format: "label CONTAINS %@", "清空"))
@@ -76,7 +91,7 @@ final class AcceptanceUITests: XCTestCase {
         XCTAssertTrue(reach(clearFrame), "The restored Control commands were not reachable")
         XCUIDevice.shared.press(.home)
         app.activate()
-        let control = app.tabBars.buttons["表情显示"]
+        let control = mainTab(at: 0)
         XCTAssertTrue(control.waitForExistence(timeout: 5))
         XCTAssertTrue(control.isSelected)
     }
@@ -120,7 +135,7 @@ final class AcceptanceUITests: XCTestCase {
         }
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: restore)
         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 3), .completed)
-        let performance = app.tabBars.buttons["演出"]
+        let performance = mainTab(at: 3)
         performance.tap()
         XCTAssertTrue(performance.isSelected)
         XCUIDevice.shared.press(.home)
@@ -128,7 +143,7 @@ final class AcceptanceUITests: XCTestCase {
         app.terminate()
         app.launchArguments = ["-AppleLanguages", "(zh-Hans)"] + deterministicLaunchArguments
         app.launch()
-        let restoredPerformance = app.tabBars.buttons["演出"]
+        let restoredPerformance = mainTab(at: 3)
         XCTAssertTrue(restoredPerformance.waitForExistence(timeout: 15))
         XCTAssertTrue(restoredPerformance.isSelected)
     }
