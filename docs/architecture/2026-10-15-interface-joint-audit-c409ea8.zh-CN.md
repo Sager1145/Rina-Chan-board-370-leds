@@ -93,7 +93,7 @@
 - **Deletion test**：删掉 App 侧的两处，固件仍会把纯部件表情存成引用，行为不变。复杂度消失，没有转移到别处，说明这是纯 pass-through 的重复。
 - **一处实现**：只在固件。App 一律发送 `{id, name, type, call?, frameHex}`（frameHex 永远带上，作为权威像素），存储形式由固件决定。
 - **删除**：`canonicalPayload`、`partsReferenceOnly`（RinaCommand.swift:315、:331）、App 内两处目录名硬编码，以及 `supportsPartsReferences` 在保存路径上的全部分支（如无其他用途，能力位本身也可删）。
-- **兼容**：旧固件本来就收 frameHex 并存位图，新 App 一律带 frameHex 对旧固件更安全。`matchesSavedPayload` 的目录比对（:684）改为只比像素、名称、类型和顺序。
+- **兼容**：旧固件本来就收 frameHex 并存位图，新 App 一律带 frameHex 对旧固件更安全。`matchesSavedPayload` 改为只比名称、像素和顺序：类型与部件元数据由固件决定，不一致的 parts 会被存成 custom。
 - **风险**：低。需要改 `BoardOwnedSaveSafetyTests`、`MultiBoardFaceSaveTests` 里断言 `partsReferenceOnly` 的用例。
 
 ### F2 upsert 后无条件全库回读 — Strong

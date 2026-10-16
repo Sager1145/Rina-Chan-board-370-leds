@@ -578,6 +578,9 @@ bool ensureSavedFacesLoaded() {
     return loadSavedFaces(false) && runtimeAutoFaceCount() > 0;
 }
 
+// Stages the complete runtime table before publishing it. On startup, invalid
+// individual records are logged and skipped without rewriting the source file.
+// false preserves the displayed pixels and current id when it still exists.
 static bool installSavedFacesDocument(JsonVariant document, bool applyStartupFace) {
     PreparedSavedFaces prepared;
     String error;

@@ -237,7 +237,10 @@ final class BoardOwnedSaveSafetyTests: XCTestCase {
         XCTAssertEqual(editor.editingFaceId, id)
     }
 
-    func testCopyOfLegacyPartsWithChangedPixelsUsesVerifiedCustomBitmap() async throws {
+    /// The app sends the pixels and the stale call as they are; the board
+    /// (`canonicalizeSavedFaces`, saved_faces_storage_test.py) stores the
+    /// mismatch as custom, and readback must accept that as saved.
+    func testCopyOfLegacyPartsWithChangedPixelsAcceptsBoardCustomBitmap() async throws {
         let (connection, transport) = await connectedBoard()
         defer { connection.disconnect() }
         let library = FaceLibraryModel()
@@ -250,8 +253,8 @@ final class BoardOwnedSaveSafetyTests: XCTestCase {
         let copy = Task { await library.copy(legacy, from: .local, to: .board, connection: connection) }
         try await transport.waitForSent(type: .cmd, count: 1)
         let submitted = try facePayload(transport)
-        XCTAssertEqual(submitted["type"] as? String, "custom")
-        XCTAssertNil(submitted["call"])
+        XCTAssertEqual(submitted["type"] as? String, "parts")
+        XCTAssertNotNil(submitted["call"])
         XCTAssertEqual(submitted["frameHex"] as? String, frame.hex94)
         let id = try XCTUnwrap(submitted["id"] as? String)
         let name = try XCTUnwrap(submitted["name"] as? String)

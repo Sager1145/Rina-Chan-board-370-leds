@@ -23,10 +23,6 @@ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written
 
 bool loadSavedFaces(bool applyStartupFace);
 
-// Stages the complete runtime table before publishing it. On startup, invalid
-// individual records are logged and skipped without rewriting the source file.
-// false preserves the displayed pixels and current id when it still exists.
-
 // Shared logical-frame decoder. Legacy parts+bitmap records retain their
 // authoritative bitmap; ID-only parts require the exact supported catalog.
 bool materializeSavedFace(JsonObject face, uint8_t* out, String& error);

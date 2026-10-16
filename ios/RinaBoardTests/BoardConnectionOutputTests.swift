@@ -967,6 +967,11 @@ final class FakeRinaTransport: @MainActor RinaTransport {
         ))
     }
 
+    /// Delivers several frames in one transport read, as one TCP segment can.
+    func emitInOneRead(_ frames: [RinaLinkFrame]) {
+        incomingContinuation?.yield(frames.reduce(into: Data()) { $0.append(try! RinaLinkEncoder.encode($1)) })
+    }
+
     func emitReply(type: RinaLinkMessageType, seq: UInt8, payload: Data) {
         incomingContinuation?.yield(try! RinaLinkEncoder.encode(
             RinaLinkFrame(type: type.replyType, seq: seq, flags: 0, payload: payload)

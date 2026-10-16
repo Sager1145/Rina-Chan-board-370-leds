@@ -92,8 +92,7 @@ final class FacesTransferTests: XCTestCase {
     }
 
     /// Another client's write shows up as a status generation ahead of the
-    /// one this connection read; its own writes never do (the reply that
-    /// advances `currentFacesGeneration` arrives before the status event).
+    /// one this connection read.
     func testStatusGenerationAheadOfLoadedLibraryMarksItStale() async throws {
         let transport = FakeRinaTransport()
         transport.commandReply = ["ok": true, "bootId": "boot-a", "caps": ["faces_conditional_v1"]]
@@ -111,5 +110,42 @@ final class FacesTransferTests: XCTestCase {
         transport.emitEvent(type: .evStatus, json: ["ok": true, "v": 4, "facesGeneration": 5])
         for _ in 0..<200 where connection.boardFacesGeneration != 5 { await Task.yield() }
         XCTAssertTrue(connection.facesDocumentIsStale)
+    }
+
+    /// The board sends a write's reply and the status it causes back to back;
+    /// over TCP they can share one read, and the status is applied before the
+    /// awaiting write resumes. Our own write must not look like another
+    /// client's (that would download the whole library again).
+    func testOwnWriteWhoseStatusSharesTheReplyReadIsNotStale() async throws {
+        let transport = FakeRinaTransport()
+        transport.commandReply = ["ok": true, "bootId": "boot-a", "caps": ["faces_conditional_v1"]]
+        let connection = BoardConnection()
+        let connected = await connection.connect(using: transport)
+        XCTAssertTrue(connected)
+        transport.automaticallyReplies = false
+        let read = Task { try await connection.getFaces() }
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        transport.replyToNext(type: .getFaces, payload: Data([4,0,0,0]) + (try FaceDocument().encoded()))
+        _ = try await read.value
+        transport.resetRecordedFrames()
+        let rename = Task { try await connection.faceRename(id: "user_a", name: "B") }
+        try await transport.waitForSent(type: .cmd, count: 1)
+        let request = try XCTUnwrap(transport.lastSent(type: .cmd))
+        let reply = try JSONSerialization.data(withJSONObject: ["ok": true, "v": 5, "gen": 5, "count": 1])
+        let status = try JSONSerialization.data(withJSONObject: ["ok": true, "v": 5, "facesGeneration": 5])
+        transport.emitInOneRead([
+            RinaLinkFrame(type: RinaLinkMessageType.cmd.replyType, seq: request.seq, flags: 0, payload: reply),
+            RinaLinkFrame(type: RinaLinkMessageType.evStatus.rawValue, seq: 0, flags: 0, payload: status),
+        ])
+        var sawStale = false
+        for _ in 0..<500 where connection.boardFacesGeneration != 5 || connection.currentFacesGeneration != 5 {
+            sawStale = sawStale || connection.facesDocumentIsStale
+            await Task.yield()
+        }
+        sawStale = sawStale || connection.facesDocumentIsStale
+        _ = try await rename.value
+        XCTAssertEqual(connection.currentFacesGeneration, 5)
+        XCTAssertFalse(sawStale)
+        XCTAssertFalse(connection.facesDocumentIsStale)
     }
 }

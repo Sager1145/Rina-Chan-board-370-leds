@@ -1667,6 +1667,8 @@ public final class BoardConnection {
     }
 
     public func saveFaces(document: FaceDocument) async throws {
+        faceWritesInFlight += 1
+        defer { faceWritesInFlight -= 1 }
         let data = try document.encoded()
         let meta = try await faceWriteMetadata()
         _ = try await uploadBlob(kind: .faces, meta: meta, data: data)
@@ -1687,12 +1689,15 @@ public final class BoardConnection {
     /// only invalidates the loaded library; write conditions still use the
     /// generation of the document the caller actually read (`facesGen`).
     public private(set) var boardFacesGeneration: Int?
-    /// Another client wrote since this connection read the library. Own writes
-    /// never trip it: their reply advances `facesGen` before the status event.
+    /// Another client wrote since this connection read the library. Not
+    /// judged while our own write is in flight: the board sends the status it
+    /// causes right after the reply, and when both arrive in one read the
+    /// status is applied before the write resumes and advances `facesGen`.
     public var facesDocumentIsStale: Bool {
-        guard let facesGen, let boardFacesGeneration else { return false }
+        guard faceWritesInFlight == 0, let facesGen, let boardFacesGeneration else { return false }
         return boardFacesGeneration > facesGen
     }
+    private var faceWritesInFlight = 0
 
     @discardableResult
     public func faceRename(id: String, name: String) async throws -> FaceOpReply {
@@ -1733,6 +1738,8 @@ public final class BoardConnection {
 
     private func sendFaceOp(_ cmd: RinaCommand, createOnly: Bool = false,
                             expectedBootId: String? = nil, expectedGen: Int? = nil) async throws -> FaceOpReply {
+        faceWritesInFlight += 1
+        defer { faceWritesInFlight -= 1 }
         let generation = connectionGeneration
         let carrier = transportSessionID
         let metadata = try await faceWriteMetadata(expectedBootId: expectedBootId, expectedGen: expectedGen)

@@ -135,8 +135,8 @@ header with no Arduino dependencies) so they are testable with `c++ -std=c++17`.
   `supports(_ cap: BoardCapability) -> Bool` with enum cases
   `identify, clockSample, scrollViewport, groupStart` (raw values as in §1.1).
 - `RinaCommand`: cases for `identify(number:ttlMs:)`, `clockSample`,
-  `groupStart(atUs:bootId:intervalMs:startFrame:loop:)`; reply structs
-  `IdentifyReply`, `ClockSampleReply`, `GroupStartReply`.
+  `groupStart(atUs:bootId:intervalMs:startFrame:loop:)`; reply struct
+  `ClockSampleReply` (identify and group_start replies decode as `CommandReply`).
 - scroll_bitmap BEGIN meta: optional `virtualWidth`, `viewportX`; END reply
   optional echoes.
 - `StitchedScreenLayout` (new file):

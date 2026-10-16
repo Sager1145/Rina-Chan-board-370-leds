@@ -201,10 +201,11 @@ struct FaceLibraryView: View {
                 await model.reload(connection: connection)
             }
         }
-        // Another client changed this board's library. Not a `.task(id:)`:
-        // the flag clears as soon as the read lands, which would cancel it.
-        .onChange(of: connection.facesDocumentIsStale) { _, stale in
-            guard stale, isConnected, !model.isSaving else { return }
+        // Another client changed this board's library. Includes `isSaving` so a
+        // change seen during a save still reloads once the save ends. Not a
+        // `.task(id:)`: the flag clears when the read lands, which would cancel it.
+        .onChange(of: connection.facesDocumentIsStale && !model.isSaving) { _, reload in
+            guard reload, isConnected else { return }
             Task { await model.reload(connection: connection) }
         }
         .onChange(of: isConnected) { _, connected in if !connected { dismiss() } }
