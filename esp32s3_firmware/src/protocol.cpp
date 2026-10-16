@@ -757,7 +757,12 @@ static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName,
     out["v"] = runtimeStateVersion();
     out["gen"] = savedFacesGeneration();
     out["count"] = count;
-    if (replyFaceId) addStoredFace(out.createNestedObject("face"), doc.as<JsonVariant>(), *replyFaceId);
+    if (replyFaceId) {
+        addStoredFace(out.createNestedObject("face"), doc.as<JsonVariant>(), *replyFaceId);
+        // A record padded with unknown fields can outgrow the reply; a partial
+        // copy must not be mistaken for the stored face (clients read back).
+        if (out.overflowed()) out.remove("face");
+    }
     sendJsonReply(c, msg::CMD, seq, out);
 }
 

@@ -615,11 +615,7 @@ final class FaceLibraryModel {
                                                         expectedGen: source?.expectedGen)
             guard connection.connectionGeneration == generation,
                   boardStillShown(connection, since: revision) else { return .pending(id: targetID) }
-            // The reply's record replaces a readback only when its generation is
-            // the next one after the shown library: then no other writer can
-            // have changed anything else in between.
-            if revision == boardLoadRevision, boardDocumentBelongs(to: connection),
-               boardBootId == connection.bootId, let gen = reply.gen, let shown = boardFacesGen, gen == shown + 1,
+            if let gen = continuesShownLibrary(reply, connection, since: revision),
                let stored = reply.face, stored.id == targetID, stored.packedFrame != nil {
                 var document = faceDocument
                 if let index = document.faces.firstIndex(where: { $0.id == targetID }) {
@@ -794,20 +790,19 @@ final class FaceLibraryModel {
             // happens strictly after this point.
             let revision = boardLoadRevision
             do {
-                _ = try await connection.faceRename(id: face.id, name: clean)
+                let reply = try await connection.faceRename(id: face.id, name: clean)
                 guard boardStillShown(connection, since: revision) else { return true }
-                if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation,
+                if let gen = continuesShownLibrary(reply, connection, since: revision),
                    let index = faceDocument.faces.firstIndex(where: { $0.id == face.id }) {
                     faceDocument.faces[index].name = clean
                     faceDocument.faces[index].updatedAt = timestamp()
+                    boardFacesGen = gen
                 } else {
                     await reload(connection: connection)
                 }
                 guard let confirmed = faceDocument.faces.first(where: { $0.id == face.id }),
                       confirmed.name == clean, confirmed.packedFrame == face.packedFrame,
                       let frame = face.packedFrame else { return false }
-                boardBootId = connection.bootId
-                boardFacesGen = connection.currentFacesGeneration
                 confirmedRenames[face.id] = (FaceExpectation(name: face.name, frameHex: frame.hex94),
                                              FaceExpectation(name: clean, frameHex: frame.hex94),
                                              boardBootId, boardFacesGen)
@@ -883,12 +878,11 @@ final class FaceLibraryModel {
             }
             let revision = boardLoadRevision
             do {
-                _ = try await connection.faceDelete(id: face.id)
+                let reply = try await connection.faceDelete(id: face.id)
                 guard boardStillShown(connection, since: revision) else { return true }
-                if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
+                if let gen = continuesShownLibrary(reply, connection, since: revision) {
                     faceDocument.faces.removeAll { $0.id == face.id }
-                    boardBootId = connection.bootId
-                    boardFacesGen = connection.currentFacesGeneration
+                    boardFacesGen = gen
                 } else {
                     await reload(connection: connection)
                 }
@@ -1026,12 +1020,11 @@ final class FaceLibraryModel {
             let ids = (defaultFaces + newUserOrder).map(\.id)
             let revision = boardLoadRevision
             do {
-                _ = try await connection.faceReorder(ids: ids)
+                let reply = try await connection.faceReorder(ids: ids)
                 guard boardStillShown(connection, since: revision) else { return true }
-                if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
+                if let gen = continuesShownLibrary(reply, connection, since: revision) {
                     assignOrders(defaults: defaultFaces, users: newUserOrder, in: &faceDocument)
-                    boardBootId = connection.bootId
-                    boardFacesGen = connection.currentFacesGeneration
+                    boardFacesGen = gen
                 } else {
                     return await reload(connection: connection)
                 }
@@ -1058,12 +1051,11 @@ final class FaceLibraryModel {
         guard await validateBoard(connection) else { return false }
         let revision = boardLoadRevision
         do {
-            _ = try await connection.faceReorder(ids: newOrder.map(\.id))
+            let reply = try await connection.faceReorder(ids: newOrder.map(\.id))
             guard boardStillShown(connection, since: revision) else { return true }
-            if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
+            if let gen = continuesShownLibrary(reply, connection, since: revision) {
                 assignOrders(defaults: [], users: newOrder, in: &faceDocument)
-                boardBootId = connection.bootId
-                boardFacesGen = connection.currentFacesGeneration
+                boardFacesGen = gen
             } else {
                 return await reload(connection: connection)
             }
@@ -1290,6 +1282,19 @@ final class FaceLibraryModel {
     private func boardStillShown(_ connection: BoardConnection, since revision: UInt64) -> Bool {
         revision == boardLoadRevision
             || boardLoadTargetGeneration == connection.connectionGeneration
+    }
+
+    /// The one rule for applying a face write locally instead of reading the
+    /// library back: the reply's generation is the next one after the
+    /// generation this model shows, on the same boot. Then no other writer —
+    /// another client, or another model on this connection — changed anything
+    /// in between. Returns that generation.
+    private func continuesShownLibrary(_ reply: FaceOpReply, _ connection: BoardConnection,
+                                       since revision: UInt64) -> Int? {
+        guard revision == boardLoadRevision, boardDocumentBelongs(to: connection),
+              boardBootId == connection.bootId,
+              let gen = reply.gen, let shown = boardFacesGen, gen == shown + 1 else { return nil }
+        return gen
     }
 
     private func boardDocumentBelongs(to connection: BoardConnection) -> Bool {

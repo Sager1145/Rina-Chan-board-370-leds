@@ -1679,11 +1679,9 @@ public final class BoardConnection {
 
     // MARK: Incremental saved-face commands (§7.2)
 
-    /// Set after every face-op reply: whether the reply's `gen` matched the
-    /// caller's locally tracked "expected next gen" (no other client mutated
-    /// `saved_faces.json` concurrently), so callers can apply their optimistic
-    /// local mutation instead of re-fetching the whole document via `getFaces()`.
-    public private(set) var lastFaceOpGenMatchedExpectation = true
+    /// Generation of the library this connection last read or wrote. Whether
+    /// a caller may apply a write in place is decided per shown library
+    /// (`FaceLibraryModel.continuesShownLibrary`), not here.
     private var facesGen: Int?
     /// The board's latest saved-faces generation as reported by status. It
     /// only invalidates the loaded library; write conditions still use the
@@ -1762,19 +1760,7 @@ public final class BoardConnection {
         // library. Existing waiters finish/cancel independently; new readers
         // must start a fresh transaction rather than joining that older flight.
         facesReadFlight = nil
-        // The reply's generation is the only evidence that nobody else mutated
-        // `saved_faces.json` between our read and this write. Without it — no
-        // `gen` field at all, or none observed for this carrier — there is no
-        // basis for that claim, so callers must reload rather than apply an
-        // optimistic in-place mutation. Firmware that does not report `gen`
-        // therefore always takes the reload path, by design: a silently stale
-        // library is worse than a redundant fetch.
-        if let gen = reply.gen {
-            lastFaceOpGenMatchedExpectation = facesGen.map { gen == $0 + 1 } ?? false
-            facesGen = gen
-        } else {
-            lastFaceOpGenMatchedExpectation = false
-        }
+        if let gen = reply.gen { facesGen = gen }
         return reply
     }
 

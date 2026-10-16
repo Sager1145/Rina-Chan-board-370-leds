@@ -127,7 +127,7 @@ final class FaceLibrarySortCacheTests: XCTestCase {
     /// upsert and delete all mutate `faceDocument` *in place* (e.g.
     /// `faceDocument.faces[index].name = ...`, `faceDocument.faces.removeAll
     /// { ... }`, `assignOrders(..., in: &faceDocument)`) when
-    /// `connection.lastFaceOpGenMatchedExpectation` is true, and only fall
+    /// the reply continues the generation the model shows, and only fall
     /// back to a wholesale `reload` otherwise. Since the view now renders
     /// `cachedBoardSortedFaces` (not `faceDocument.sortedFaces` directly), a
     /// future refactor of one of those in-place paths that bypassed
@@ -162,7 +162,7 @@ final class FaceLibrarySortCacheTests: XCTestCase {
         guard let u1 = model.face(id: "u1", in: .board) else { return XCTFail("missing u1") }
         let renamed = await model.rename(u1, to: "U1 Renamed", in: .board, connection: connection)
         XCTAssertTrue(renamed)
-        XCTAssertTrue(connection.lastFaceOpGenMatchedExpectation,
+        XCTAssertEqual(transport.sentFrames(type: .getFaces).count, 1,
                       "test setup must exercise the in-place path, not a reload fallback")
         assertCacheMatchesReference(model, in: .board)
         XCTAssertEqual(model.face(id: "u1", in: .board)?.name, "U1 Renamed")
