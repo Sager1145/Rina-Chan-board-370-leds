@@ -108,27 +108,26 @@ final class RinaCommandTests: XCTestCase {
         XCTAssertEqual(face?["frameHex"] as? String, String(repeating: "00", count: PackedFrame.byteCount))
     }
 
-    func testPartsReferenceOmitsBitmapOnlyWhenExplicitlyEnabled() throws {
-        var payload = FaceUpsertPayload(id: "user_stable", name: "Parts", type: "parts",
-                                         frameHex: PackedFrame().hex94,
-                                         call: .init(leye: "101", reye: "201", mouth: "301", cheek: "400"))
-        payload.partsCatalog = "rina_expression_parts_370_runtime_v4"
-        payload.partsVersion = 4
-        func faceObject() throws -> [String: Any] {
-            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: RinaCommand.faceUpsert(face: payload).encode()) as? [String: Any])
-            return try XCTUnwrap(object["face"] as? [String: Any])
-        }
-        XCTAssertEqual(try faceObject()["frameHex"] as? String, PackedFrame().hex94)
-        payload.partsReferenceOnly = true
-        let reference = try faceObject()
-        XCTAssertNil(reference["frameHex"])
-        XCTAssertEqual(reference["partsCatalog"] as? String, "rina_expression_parts_370_runtime_v4")
-        XCTAssertEqual(reference["partsVersion"] as? Int, 4)
-        XCTAssertEqual(reference["id"] as? String, "user_stable")
-        // The pending operation retains the expanded snapshot for readback.
-        let restored = try JSONDecoder().decode(FaceUpsertPayload.self, from: JSONEncoder().encode(payload))
-        XCTAssertEqual(restored, payload)
+    /// The board decides whether a parts face is stored as a reference
+    /// (`canonicalizeSavedFaces`), so the app always sends the pixels.
+    func testPartsUpsertAlwaysCarriesBitmapAndCall() throws {
+        let payload = FaceUpsertPayload(id: "user_stable", name: "Parts", type: "parts",
+                                        frameHex: PackedFrame().hex94,
+                                        call: .init(leye: "101", reye: "201", mouth: "301", cheek: "400"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: RinaCommand.faceUpsert(face: payload).encode()) as? [String: Any])
+        let face = try XCTUnwrap(object["face"] as? [String: Any])
+        XCTAssertEqual(face["frameHex"] as? String, PackedFrame().hex94)
+        XCTAssertEqual((face["call"] as? [String: Any])?["mouth"] as? String, "301")
+        XCTAssertNil(face["partsCatalog"])
+        XCTAssertNil(face["partsVersion"])
+    }
+
+    /// Pending-save journals written before this change still decode.
+    func testLegacyJournalPayloadWithReferenceFieldsDecodes() throws {
+        let legacy = #"{"name":"Parts","type":"parts","frameHex":"\#(PackedFrame().hex94)","partsCatalog":"rina_expression_parts_370_runtime_v4","partsVersion":4,"partsReferenceOnly":true}"#
+        let restored = try JSONDecoder().decode(FaceUpsertPayload.self, from: Data(legacy.utf8))
         XCTAssertEqual(restored.frameHex, PackedFrame().hex94)
+        XCTAssertEqual(restored.type, "parts")
     }
 
     func testFaceUpsertWithoutIdOmitsIdField() throws {

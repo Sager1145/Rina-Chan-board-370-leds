@@ -106,15 +106,6 @@ final class BoardGroupMessagesTests: XCTestCase {
 
     // MARK: - Reply structs (§1.2/§1.3/§1.5)
 
-    func testIdentifyReplyDecodes() throws {
-        let json = #"{"ok":true,"shown":true,"number":3,"ttlMs":5000}"#
-        let reply = try JSONDecoder().decode(IdentifyReply.self, from: Data(json.utf8))
-        XCTAssertEqual(reply.ok, true)
-        XCTAssertEqual(reply.shown, true)
-        XCTAssertEqual(reply.number, 3)
-        XCTAssertEqual(reply.ttlMs, 5000)
-    }
-
     func testClockSampleReplyDecodes() throws {
         let json = #"{"ok":true,"rxUs":1234567890123,"txUs":1234567890456,"bootId":"a1b2c3d4"}"#
         let reply = try JSONDecoder().decode(ClockSampleReply.self, from: Data(json.utf8))
@@ -123,15 +114,8 @@ final class BoardGroupMessagesTests: XCTestCase {
         XCTAssertEqual(reply.bootId, "a1b2c3d4")
     }
 
-    func testGroupStartReplyDecodes() throws {
-        let json = #"{"ok":true,"nowUs":9876543210,"frameCount":150}"#
-        let reply = try JSONDecoder().decode(GroupStartReply.self, from: Data(json.utf8))
-        XCTAssertEqual(reply.nowUs, 9876543210)
-        XCTAssertEqual(reply.frameCount, 150)
-    }
-
     func testGroupStartReplyBootMismatchIsGenericErrorReply() throws {
-        // `ERR 409 boot_mismatch` decodes with the shared ErrorReply, not GroupStartReply.
+        // `ERR 409 boot_mismatch` decodes with the shared ErrorReply.
         let json = #"{"ok":false,"error":"boot_mismatch","code":409}"#
         let reply = try JSONDecoder().decode(ErrorReply.self, from: Data(json.utf8))
         XCTAssertEqual(reply.error, "boot_mismatch")

@@ -453,8 +453,8 @@ final class MacSavedFacesHardwareTests: XCTestCase {
                 guard !mode.contains("auto"), !playback.contains("auto"), status.renderer?.firmwareScrollActive != true else {
                     throw XCTSkip("\(rig.id) has automatic/scroll playback active; leave its output untouched and run in manual mode")
                 }
-                guard rig.connection.supportsPartsReferences, rig.connection.supportsConditionalFaceWrites else {
-                    throw XCTSkip("\(rig.id) requires faces_parts_v4 and faces_conditional_v1 firmware capabilities")
+                guard rig.connection.supportsConditionalFaceWrites else {
+                    throw XCTSkip("\(rig.id) requires faces_conditional_v1 firmware capability")
                 }
                 guard document.faces.filter({ $0.type == .default }).count <= 125 else {
                     throw XCTSkip("\(rig.id) has too many protected defaults to build both fixture formats and reserve the final upsert slot")
@@ -604,9 +604,10 @@ final class MacSavedFacesHardwareTests: XCTestCase {
         let call = partsCall(128, parts: parts)
         let frame = parts.compose(call: call)
         let id = "hw_save_v1_\(rig.id)_parts128"
-        var upsert = FaceUpsertPayload(id: id, name: "HW ID-only parts", type: "parts", frameHex: frame.hex94,
+        // The app always sends pixels; the board must store this pure-parts
+        // face as a reference, which the readback's partsCatalog/Version prove.
+        let upsert = FaceUpsertPayload(id: id, name: "HW ID-only parts", type: "parts", frameHex: frame.hex94,
             call: .init(leye: call.leye, reye: call.reye, mouth: call.mouth, cheek: call.cheek))
-        upsert.partsCatalog = parts.format; upsert.partsVersion = parts.version; upsert.partsReferenceOnly = true
         let reply = try await rig.connection.faceUpsert(upsert, createOnly: true,
             expectedBootId: rig.connection.bootId, expectedGen: rig.connection.currentFacesGeneration)
         guard reply.ok == true else { throw HardwareFailure("\(rig.id): ID-only create rejected") }

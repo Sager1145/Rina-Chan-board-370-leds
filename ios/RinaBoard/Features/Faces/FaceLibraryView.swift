@@ -201,6 +201,12 @@ struct FaceLibraryView: View {
                 await model.reload(connection: connection)
             }
         }
+        // Another client changed this board's library. Not a `.task(id:)`:
+        // the flag clears as soon as the read lands, which would cancel it.
+        .onChange(of: connection.facesDocumentIsStale) { _, stale in
+            guard stale, isConnected, !model.isSaving else { return }
+            Task { await model.reload(connection: connection) }
+        }
         .onChange(of: isConnected) { _, connected in if !connected { dismiss() } }
         .onChange(of: connection.connectionGeneration) { _, _ in dismiss() }
         .sheet(isPresented: $isMigratingLegacy) {

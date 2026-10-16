@@ -165,10 +165,9 @@ final class MultiBoardFaceSaveCoordinator {
             let payload = FaceUpsertPayload(id: overwrite ?? "user_\(UUID().uuidString.lowercased())",
                                              name: clean, type: snapshot.type, frameHex: snapshot.frameHex,
                                              call: snapshot.call, expect: overwrite != nil ? snapshot.expectation : nil)
-            let library = FaceLibraryModel()
             targets.append(Target(id: destination.id, name: destination.name, physicalID: destination.physicalID,
                                   generation: destination.generation, carrier: destination.carrier,
-                                  payload: library.canonicalPayload(payload, supportsPartsReferences: destination.connection.supportsPartsReferences),
+                                  payload: payload,
                                   source: source, createOnly: overwrite == nil, status: .ready))
         }
         operation = Operation(id: UUID(), name: clean, snapshot: snapshot, targets: targets)
@@ -215,7 +214,6 @@ final class MultiBoardFaceSaveCoordinator {
                 _ = await persist()
                 continue
             }
-            target.payload = library.canonicalPayload(target.payload, supportsPartsReferences: destination.connection.supportsPartsReferences)
             if retrying {
                 if library.matchesSavedPayload(target.payload, expectedOrder: target.expectedOrder) {
                     target.status = .confirmed

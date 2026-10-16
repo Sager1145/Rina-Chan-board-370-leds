@@ -63,7 +63,6 @@ final class BootLoaderModel {
     /// A finish requested while loading was still running.
     private var finishAwaitingLoad = false
     private var loadTimeout: Task<Void, Never>?
-    private var doneContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
     /// Card count of the last waterfall, so a replay can re-run it.
     private var waterfallCount = 3
 
@@ -203,31 +202,6 @@ final class BootLoaderModel {
         guard phase != .done else { return }
         phase = .done
         revealsAllCards = true
-        let continuations = doneContinuations.values
-        doneContinuations.removeAll()
-        for continuation in continuations { continuation.resume() }
     }
 
-    /// Await full completion of P5. Gates work that must not start while the
-    /// loader is showing, e.g. the board status auto-reconnect fetch.
-    func waitUntilDone() async {
-        if phase == .done { return }
-        let id = UUID()
-        // Without a cancellation handler this suspends forever if the caller's
-        // task is cancelled first — and the caller is the board auto-reconnect,
-        // so that would strand the app disconnected with no diagnostic.
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if phase == .done {
-                    continuation.resume()
-                } else {
-                    doneContinuations[id] = continuation
-                }
-            }
-        } onCancel: {
-            Task { @MainActor [weak self] in
-                self?.doneContinuations.removeValue(forKey: id)?.resume()
-            }
-        }
-    }
 }

@@ -16,6 +16,13 @@ final class BoardOutputStatusTests: XCTestCase {
         XCTAssertEqual(roundTrip.renderer?.outputPositionMs, 42123)
     }
 
+    func testStatusCarriesSavedFacesGeneration() throws {
+        let status = try JSONDecoder().decode(DeviceStatus.self,
+            from: Data(#"{"ok":true,"v":9,"bootId":"a1b2c3d4","facesGeneration":12}"#.utf8))
+        XCTAssertEqual(status.facesGeneration, 12)
+        XCTAssertNil(try JSONDecoder().decode(DeviceStatus.self, from: Data(#"{"ok":true}"#.utf8)).facesGeneration)
+    }
+
     func testOlderFirmwareDoesNotRequireStreamMetadata() throws {
         let fields = Data(#"{"mode":"manual","playback":"idle","lastReason":"lipsync"}"#.utf8)
         let renderer = try JSONDecoder().decode(RendererStatus.self, from: fields)

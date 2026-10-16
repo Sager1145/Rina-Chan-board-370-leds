@@ -514,26 +514,6 @@ public final class ConnectionViewModel {
         }
     }
 
-    /// After provisioning STA over BLE, switch the active connection to TCP
-    /// at the board's reported IP.
-    public func switchToWifi(connection: BoardConnection, boardStore: BoardStore) async {
-        guard let ip = connection.wifi?.ip, !ip.isEmpty else { return }
-        let ssid = connection.wifi?.ssid
-        homeProvisionStage = .connectingToBoard
-        let transport = TCPTransport(host: ip)
-        await connection.connect(using: transport)
-        guard connection.connectionState == .connected else {
-            let message = connection.lastError ?? NSLocalizedString("板子已接入 Wi-Fi，但 App 连接失败", comment: "TCP control connection failed")
-            homeProvisionStage = .failed(message)
-            return
-        }
-        if let ssid {
-            boardStore.upsert(KnownBoard(id: ip, name: connection.deviceName ?? ssid, preferredTransport: "wifi",
-                                          lastHost: ip, physicalBoardID: connection.boardIdentity, lastSeen: Date()))
-        }
-        homeProvisionStage = .connected
-    }
-
     // MARK: Selected board transport
 
     public enum TransportSelection: String, Hashable {

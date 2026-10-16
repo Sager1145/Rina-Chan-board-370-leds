@@ -77,10 +77,6 @@ bool readStringFromFileLocked(const char* path, String& outContent) {
     return ok;
 }
 
-bool writeStringToFileLocked(const char* path, const String& content) {
-    return writeBytesToFileAtomic(path, reinterpret_cast<const uint8_t*>(content.c_str()), content.length());
-}
-
 namespace {
 constexpr uint32_t RUNTIME_SETTINGS_SAVE_DEBOUNCE_MS = 1000;
 bool g_runtimeSettingsSavePending = false;
@@ -582,7 +578,7 @@ bool ensureSavedFacesLoaded() {
     return loadSavedFaces(false) && runtimeAutoFaceCount() > 0;
 }
 
-bool installSavedFacesDocument(JsonVariant document, bool applyStartupFace) {
+static bool installSavedFacesDocument(JsonVariant document, bool applyStartupFace) {
     PreparedSavedFaces prepared;
     String error;
     if (!prepared.prepare(document, true, error)) {

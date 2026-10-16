@@ -84,7 +84,6 @@ final class FaceLibraryModel {
     var pendingEditRequest: FaceEditRequest?
 
     private let localStore: any LocalFaceStoring
-    private let partsLibraryForSaving: PartsLibrary?
     private var localDeletion: LocalDeletion?
     private var nextEditRequestID: UInt64 = 1
     private var localLoadWaiters: [CheckedContinuation<Void, Never>] = []
@@ -104,7 +103,6 @@ final class FaceLibraryModel {
 
     init(localStore: any LocalFaceStoring = LocalFaceStore()) {
         self.localStore = localStore
-        self.partsLibraryForSaving = try? RinaResources.partsLibrary(bundle: .main)
     }
 
     private func beginLocalMutation() async {
@@ -484,37 +482,6 @@ final class FaceLibraryModel {
 
     // MARK: Save / update
 
-    /// Metadata never gets to replace the actual pixel snapshot. All save
-    /// entry points, including legacy migration/copy, share this check.
-    func canonicalPayload(_ input: FaceUpsertPayload, supportsPartsReferences: Bool) -> FaceUpsertPayload {
-        var payload = input
-        guard payload.type == "parts" else { return payload }
-        let selected: PartsCall? = payload.call.flatMap { call in
-            guard let leye = call.leye, let reye = call.reye,
-                  let mouth = call.mouth, let cheek = call.cheek else { return nil }
-            return PartsCall(leye: leye, reye: reye, mouth: mouth, cheek: cheek)
-        }
-        let pureParts: Bool
-        if let selected, let library = partsLibraryForSaving,
-           PartGroup.allCases.allSatisfy({ library.call.ids[$0.rawValue]?.contains(selected[$0]) == true }) {
-            pureParts = library.compose(call: selected).hex94 == payload.frameHex
-        } else { pureParts = false }
-        if pureParts && supportsPartsReferences {
-            payload.partsReferenceOnly = true
-            payload.partsCatalog = "rina_expression_parts_370_runtime_v4"
-            payload.partsVersion = 4
-        } else {
-            payload.partsReferenceOnly = false
-            payload.partsCatalog = nil
-            payload.partsVersion = nil
-            if !pureParts {
-                payload.type = "custom"
-                payload.call = nil
-            }
-        }
-        return payload
-    }
-
     private struct PendingCreate: Codable {
         var payload: FaceUpsertPayload
         var source: BoardFaceSaveSource
@@ -527,7 +494,6 @@ final class FaceLibraryModel {
     @discardableResult
     func save(_ payload: FaceUpsertPayload, source: BoardFaceSaveSource? = nil,
               createOnly: Bool = false, connection: BoardConnection) async -> SaveOutcome {
-        let payload = canonicalPayload(payload, supportsPartsReferences: connection.supportsPartsReferences)
         guard !boardSaveBusy else {
             errorMessage = NSLocalizedString("正在保存，请稍候", comment: "face write already active")
             return .failed
@@ -675,16 +641,14 @@ final class FaceLibraryModel {
         }
     }
 
+    /// Readback checks what the user saved: name, pixels and position. Type
+    /// and parts metadata are the board's storage choice (a parts face whose
+    /// pixels no longer match its call is stored as custom).
     func matchesSavedPayload(_ payload: FaceUpsertPayload, expectedOrder: Int? = nil) -> Bool {
-        guard let face = faceDocument.faces.first(where: { $0.id == payload.id }),
-              face.name == payload.name, face.type.rawValue == payload.type,
-              face.packedFrame?.hex94 == payload.frameHex,
-              expectedOrder == nil || face.order == expectedOrder,
-              Self.callsEqual(face.type == .parts ? face.call : nil, payload.call) else { return false }
-        if payload.partsReferenceOnly {
-            return face.partsCatalog == payload.partsCatalog && face.partsVersion == payload.partsVersion
-        }
-        return true
+        guard let face = faceDocument.faces.first(where: { $0.id == payload.id }) else { return false }
+        return face.name == payload.name
+            && face.packedFrame?.hex94 == payload.frameHex
+            && (expectedOrder == nil || face.order == expectedOrder)
     }
 
     func confirmedRenameBaseline(id: String, from baseline: FaceExpectation) -> FaceExpectation? {
@@ -1164,17 +1128,6 @@ final class FaceLibraryModel {
             return
         }
         var decoded = parsed.document
-        for index in decoded.faces.indices where decoded.faces[index].type == .parts {
-            let face = decoded.faces[index]
-            guard let frame = face.packedFrame else { continue }
-            let normalized = canonicalPayload(FaceUpsertPayload(id: face.id, name: face.name, type: "parts",
-                                                                 frameHex: frame.hex94, call: face.call),
-                                              supportsPartsReferences: connection.supportsPartsReferences)
-            decoded.faces[index].type = SavedFace.Kind(rawValue: normalized.type) ?? .custom
-            decoded.faces[index].call = normalized.call
-            decoded.faces[index].partsCatalog = normalized.partsCatalog
-            decoded.faces[index].partsVersion = normalized.partsVersion
-        }
         // A missing `category` already defaults to `expectedCategory` on
         // decode; only a present-but-different value (or a whole-document
         // shape the firmware doesn't recognize as a face library) is refused —
@@ -1257,11 +1210,10 @@ final class FaceLibraryModel {
             key.append(encoded)
             let digest = SHA256.hash(data: key).map { String(format: "%02x", $0) }.joined()
             let id = "migrated_" + String(digest.prefix(32))
-            let payload = canonicalPayload(FaceUpsertPayload(id: id, name: cleanName(source.name),
+            let payload = FaceUpsertPayload(id: id, name: cleanName(source.name),
                                             type: source.type == .parts ? "parts" : "custom",
                                             frameHex: frame.hex94,
-                                            call: source.type == .parts ? source.call : nil),
-                                            supportsPartsReferences: connection.supportsPartsReferences)
+                                            call: source.type == .parts ? source.call : nil)
             guard await reload(connection: connection) else {
                 result.failures[source.id] = errorMessage ?? "Read failed"
                 break

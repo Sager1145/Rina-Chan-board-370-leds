@@ -818,12 +818,6 @@ final class ControlViewModel {
 
     // MARK: Saves hand-off (§11)
 
-    /// Naming always targets the connected board. The view freezes its
-    /// identity when opening the sheet; offline work remains an unsaved draft.
-    func suggestedSaveLocation(asNew: Bool, isConnected: Bool) -> FaceLibraryLocation {
-        .board
-    }
-
     /// Saves the draft itself; does not send a frame first and does not alter
     /// `lastSentFrame`. Saving a library entry is not displaying that entry.
     ///
@@ -879,7 +873,7 @@ final class ControlViewModel {
             editingExpectedBootId = library.boardBootId
             editingExpectedGen = library.boardFacesGen
         }
-        let pureParts = fromParts && self.library?.compose(call: selectedCall) == draftFrame
+        let pureParts = draftIsPureParts
         var payload = FaceUpsertPayload(
             id: replacingID ?? ("user_" + UUID().uuidString.lowercased()),
             name: clean,
@@ -893,12 +887,6 @@ final class ControlViewModel {
                                               generation: connection.connectionGeneration,
                                               expectedBootId: connection.bootId,
                                               expectedGen: connection.currentFacesGeneration)
-        if pureParts, connection.supportsPartsReferences {
-            payload.partsReferenceOnly = true
-            payload.partsCatalog = "rina_expression_parts_370_runtime_v4"
-            payload.partsVersion = 4
-        }
-        payload = library.canonicalPayload(payload, supportsPartsReferences: connection.supportsPartsReferences)
         let result: FaceLibraryModel.SaveOutcome
         let wasReconciling = pendingBoardSave != nil
         if var pending = pendingBoardSave {
@@ -996,8 +984,14 @@ final class ControlViewModel {
         return true
     }
 
+    /// The canvas is exactly the selected parts, with no hand-drawn pixels.
+    /// The board still decides how the face is stored (`canonicalizeSavedFaces`).
+    private var draftIsPureParts: Bool {
+        fromParts && library?.compose(call: selectedCall) == draftFrame
+    }
+
     func multiBoardSaveSnapshot(asNew: Bool, originBoardID: String?, using faceLibrary: FaceLibraryModel? = nil) -> MultiBoardFaceSaveSnapshot {
-        let pure = fromParts && library?.compose(call: selectedCall) == draftFrame
+        let pure = draftIsPureParts
         let overwrite = !asNew && editingFaceCanOverwrite && editingLocation == .board ? editingFaceId : nil
         var baseline = editingBaseline
         var source = overwrite != nil ? boardFaceSaveSource : nil
@@ -1020,7 +1014,7 @@ final class ControlViewModel {
     @discardableResult
     func adoptMultiBoardSave(_ operation: MultiBoardFaceSaveCoordinator.Operation,
                              connection: BoardConnection) async -> Bool {
-        let pure = fromParts && library?.compose(call: selectedCall) == draftFrame
+        let pure = draftIsPureParts
         let currentCall: SavedFace.CallIds? = pure ? .init(leye: selectedCall.leye, reye: selectedCall.reye,
                                                            mouth: selectedCall.mouth, cheek: selectedCall.cheek) : nil
         guard operation.snapshot.originBoardID == connection.boardKey,

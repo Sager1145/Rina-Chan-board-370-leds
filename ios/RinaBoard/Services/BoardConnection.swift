@@ -141,7 +141,6 @@ public final class BoardConnection {
     /// nil) before the first `get_info` round trip, or on firmware that
     /// predates it — `supports(_:)` is `false` either way.
     public private(set) var deviceInfoCaps: [String] = []
-    public var supportsPartsReferences: Bool { deviceInfoCaps.contains("faces_parts_v4") }
     public var supportsConditionalFaceWrites: Bool { deviceInfoCaps.contains("faces_conditional_v1") }
     public var currentFacesGeneration: Int? { facesGen }
 
@@ -804,6 +803,7 @@ public final class BoardConnection {
         // A generation only means anything within the carrier that reported it:
         // another client may have mutated the document while we were away.
         facesGen = nil
+        boardFacesGeneration = nil
         facesReadFlight?.task.cancel()
         facesReadFlight = nil
     }
@@ -853,9 +853,11 @@ public final class BoardConnection {
             power: decoded.power ?? power ?? status?.power,
             renderer: decoded.renderer ?? status?.renderer,
             matrix: decoded.matrix ?? status?.matrix,
-            stats: decoded.stats ?? status?.stats
+            stats: decoded.stats ?? status?.stats,
+            facesGeneration: decoded.facesGeneration ?? status?.facesGeneration
         )
         status = merged
+        if let value = decoded.facesGeneration { boardFacesGeneration = value }
         // Only assign when this status actually carried the field, otherwise
         // the published property would be reassigned its own current value
         // pointlessly (and would mask a future fallback source change).
@@ -1110,8 +1112,8 @@ public final class BoardConnection {
     }
 
     /// Typed-decoding variant of `requestReliable(_:timeout:)`, for replies
-    /// that carry fields `CommandReply` doesn't model (`IdentifyReply`,
-    /// `ClockSampleReply`, `GroupStartReply`). Does not check an `ok` field
+    /// that carry fields `CommandReply` doesn't model (`ClockSampleReply`).
+    /// Does not check an `ok` field
     /// itself (callers decode whichever reply type they asked for and inspect
     /// its own `ok`).
     public func requestReliableDecoding<Reply: Decodable & Sendable>(
@@ -1681,6 +1683,16 @@ public final class BoardConnection {
     /// local mutation instead of re-fetching the whole document via `getFaces()`.
     public private(set) var lastFaceOpGenMatchedExpectation = true
     private var facesGen: Int?
+    /// The board's latest saved-faces generation as reported by status. It
+    /// only invalidates the loaded library; write conditions still use the
+    /// generation of the document the caller actually read (`facesGen`).
+    public private(set) var boardFacesGeneration: Int?
+    /// Another client wrote since this connection read the library. Own writes
+    /// never trip it: their reply advances `facesGen` before the status event.
+    public var facesDocumentIsStale: Bool {
+        guard let facesGen, let boardFacesGeneration else { return false }
+        return boardFacesGeneration > facesGen
+    }
 
     @discardableResult
     public func faceRename(id: String, name: String) async throws -> FaceOpReply {
@@ -1715,9 +1727,8 @@ public final class BoardConnection {
             guard let expectedBootId, let expectedGen else { throw RinaTransportError.invalidResponse }
             return ["expectedBootId": expectedBootId, "expectedGen": expectedGen]
         }
-        if facesGen == nil { _ = try await getFaces() }
-        guard let bootId, let facesGen else { throw RinaTransportError.invalidResponse }
-        return ["expectedBootId": bootId, "expectedGen": facesGen]
+        guard let bootId, let generation = facesGen ?? boardFacesGeneration else { throw RinaTransportError.invalidResponse }
+        return ["expectedBootId": bootId, "expectedGen": generation]
     }
 
     private func sendFaceOp(_ cmd: RinaCommand, createOnly: Bool = false,

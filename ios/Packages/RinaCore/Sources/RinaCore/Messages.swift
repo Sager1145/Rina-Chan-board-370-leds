@@ -510,10 +510,13 @@ public struct DeviceStatus: Codable, Equatable, Sendable {
     public var renderer: RendererStatus?
     public var matrix: MatrixInfo?
     public var stats: StatsInfo?
+    /// `savedFacesGeneration()`: bumped by every saved-faces write in this boot.
+    public var facesGeneration: Int?
 
     public init(ok: Bool? = nil, v: Int? = nil, version: Int? = nil, device: String? = nil,
                 uptimeMs: Int? = nil, wifi: WifiStatus? = nil, power: PowerStatus? = nil,
-                renderer: RendererStatus? = nil, matrix: MatrixInfo? = nil, stats: StatsInfo? = nil) {
+                renderer: RendererStatus? = nil, matrix: MatrixInfo? = nil, stats: StatsInfo? = nil,
+                facesGeneration: Int? = nil) {
         self.ok = ok
         self.v = v
         self.version = version
@@ -524,6 +527,7 @@ public struct DeviceStatus: Codable, Equatable, Sendable {
         self.renderer = renderer
         self.matrix = matrix
         self.stats = stats
+        self.facesGeneration = facesGeneration
     }
 }
 
@@ -900,21 +904,6 @@ public struct FaceOpReply: Codable, Equatable, Sendable {
 
 // MARK: - Board group commands (BOARD_GROUP_SPEC §1.2/§1.3/§1.5)
 
-/// Reply to `CMD identify{number, ttlMs}` (§1.2).
-public struct IdentifyReply: Codable, Equatable, Sendable {
-    public var ok: Bool?
-    public var shown: Bool?
-    public var number: Int?
-    public var ttlMs: Int?
-
-    public init(ok: Bool? = nil, shown: Bool? = nil, number: Int? = nil, ttlMs: Int? = nil) {
-        self.ok = ok
-        self.shown = shown
-        self.number = number
-        self.ttlMs = ttlMs
-    }
-}
-
 /// Reply to `CMD clock_sample{}` (§1.3). `rxUs`/`txUs` are the board's
 /// `esp_timer_get_time()` at receive/reply-serialize time.
 public struct ClockSampleReply: Codable, Equatable, Sendable {
@@ -928,19 +917,6 @@ public struct ClockSampleReply: Codable, Equatable, Sendable {
         self.rxUs = rxUs
         self.txUs = txUs
         self.bootId = bootId
-    }
-}
-
-/// Reply to `CMD group_start{atUs, bootId, intervalMs, startFrame?, loop?}` (§1.5).
-public struct GroupStartReply: Codable, Equatable, Sendable {
-    public var ok: Bool?
-    public var nowUs: Int64?
-    public var frameCount: Int?
-
-    public init(ok: Bool? = nil, nowUs: Int64? = nil, frameCount: Int? = nil) {
-        self.ok = ok
-        self.nowUs = nowUs
-        self.frameCount = frameCount
     }
 }
 
