@@ -892,12 +892,15 @@ public struct FaceOpReply: Codable, Equatable, Sendable {
     public var v: Int?
     public var gen: Int?
     public var count: Int?
+    /// `face_upsert` only: the written record as stored, in GET_FACES form.
+    public var face: SavedFace?
 
-    public init(ok: Bool? = nil, v: Int? = nil, gen: Int? = nil, count: Int? = nil) {
+    public init(ok: Bool? = nil, v: Int? = nil, gen: Int? = nil, count: Int? = nil, face: SavedFace? = nil) {
         self.ok = ok
         self.v = v
         self.gen = gen
         self.count = count
+        self.face = face
     }
 }
 

@@ -447,6 +447,13 @@ the current file. A partial write never replaces the previous valid file.
 | `face_delete` | `{id}` | 400 for `type:"default"` or when it would remove the last default |
 | `face_upsert` | `{face:{id?, name, type:"custom"|"parts", frameHex (94 hex) or frameBytes[47], call?, expect?:{name, frameHex or frameBytes}}}` | new id → appended with `order = max+1`, `savedAt` set; existing id → frame/name/call/type replaced, `updatedAt` set; defaults cannot be overwritten; when `expect` is given on an existing id, the write is rejected 409 unless the face's current stored name and frame still match `expect` (optimistic concurrency for two clients editing the same face) |
 | `faces_clear_user` | — | deletes every non-default face |
+
+`face_upsert` additionally replies with `face`: the written record as stored (after the
+board's parts/custom canonicalization), in the same expanded form as a `GET_FACES` entry,
+so it always has `frameBytes`. A client whose shown library has generation `g` may apply
+this record in place of a readback when the reply's `gen` is exactly `g+1` on the same
+`bootId`; any other `gen`, or a reply without `face` (older firmware), means another
+write may have happened, so read the library back.
 `GET_FACES` (with `gen`) remains the bulk download; `BLOB kind:"faces"` remains for import.
 
 

@@ -425,6 +425,63 @@ final class BoardOwnedSaveSafetyTests: XCTestCase {
         XCTAssertNotNil(library.errorMessage)
     }
 
+    /// The board answers `face_upsert` with the record as stored. When its
+    /// generation is exactly the next one after the shown library, nobody
+    /// else wrote in between, so the save is confirmed without a readback.
+    func testStoredRecordInReplyConfirmsSaveWithoutLibraryReadback() async throws {
+        let (connection, transport) = await connectedBoard(caps: ["faces_conditional_v1"])
+        defer { connection.disconnect() }
+        let library = FaceLibraryModel()
+        try await reload(library, connection, transport, face: seedFace(), gen: 1)
+        transport.resetRecordedFrames()
+        var frame = PackedFrame(); frame.set(9)
+        let saving = Task {
+            await library.save(FaceUpsertPayload(id: "user_new", name: "New", type: "custom", frameHex: frame.hex94),
+                               createOnly: true, connection: connection)
+        }
+        try await transport.waitForSent(type: .cmd, count: 1)
+        let stored = SavedFace(id: "user_new", name: "New", type: .custom, frameBytes: frame.bytes.map(Int.init), order: 2)
+        // An unexpected readback gets an unusable reply and fails instead of hanging.
+        transport.automaticallyReplies = true
+        transport.replyToNext(type: .cmd, json: ["ok": true, "v": 9, "gen": 2, "count": 2,
+                                                 "face": try JSONSerialization.jsonObject(with: JSONEncoder().encode(stored))])
+        let outcome = await saving.value
+        XCTAssertEqual(outcome, .saved(id: "user_new"))
+        XCTAssertEqual(transport.sentFrames(type: .getFaces).count, 0)
+        XCTAssertEqual(library.face(id: "user_new", in: .board)?.order, 2)
+        XCTAssertNotNil(library.face(id: "seed", in: .board))
+        XCTAssertEqual(library.boardFacesGen, 2)
+    }
+
+    /// A generation that skipped one means another client wrote too; the
+    /// shown library is then unknown and must be read back.
+    func testStoredRecordAfterAnotherWriterStillReadsLibraryBack() async throws {
+        let (connection, transport) = await connectedBoard(caps: ["faces_conditional_v1"])
+        defer { connection.disconnect() }
+        let library = FaceLibraryModel()
+        try await reload(library, connection, transport, face: seedFace(), gen: 1)
+        transport.resetRecordedFrames()
+        var frame = PackedFrame(); frame.set(9)
+        let saving = Task {
+            await library.save(FaceUpsertPayload(id: "user_new", name: "New", type: "custom", frameHex: frame.hex94),
+                               connection: connection)
+        }
+        try await transport.waitForSent(type: .cmd, count: 1)
+        let stored = SavedFace(id: "user_new", name: "New", type: .custom, frameBytes: frame.bytes.map(Int.init), order: 3)
+        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 3,
+                                                 "face": try JSONSerialization.jsonObject(with: JSONEncoder().encode(stored))])
+        try await transport.waitForSent(type: .getFaces, count: 1)
+        transport.replyToNext(type: .getFaces, payload: prefix(3) + (try FaceDocument(faces: [seedFace(), stored]).encoded()))
+        let outcome = await saving.value
+        XCTAssertEqual(outcome, .saved(id: "user_new"))
+        XCTAssertEqual(transport.sentFrames(type: .getFaces).count, 1)
+    }
+
+    private func seedFace() -> SavedFace {
+        var frame = PackedFrame(); frame.set(3)
+        return SavedFace(id: "seed", name: "Seed", type: .custom, frameBytes: frame.bytes.map(Int.init), order: 1)
+    }
+
     private func connectedBoard(caps: [String] = [], kind: TransportKind = .bluetooth) async -> (BoardConnection, FakeRinaTransport) {
         let transport = FakeRinaTransport(kind: kind)
         transport.commandReply = ["ok": true, "bootId": "1234abcd", "caps": caps]

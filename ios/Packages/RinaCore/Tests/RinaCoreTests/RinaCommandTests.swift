@@ -130,6 +130,19 @@ final class RinaCommandTests: XCTestCase {
         XCTAssertEqual(restored.type, "parts")
     }
 
+    func testFaceOpReplyCarriesStoredFace() throws {
+        let bytes = Array(repeating: "0", count: PackedFrame.byteCount).joined(separator: ",")
+        let json = #"{"ok":true,"v":4,"gen":2,"count":12,"face":{"id":"user_a","name":"A","type":"parts","order":12,"#
+            + #""call":{"leye":"101","reye":"201","mouth":"301","cheek":"400"},"partsCatalog":"rina_expression_parts_370_runtime_v4","#
+            + #""partsVersion":4,"updatedAtMs":77,"frameBytes":["# + bytes + "]}}"
+        let reply = try JSONDecoder().decode(FaceOpReply.self, from: Data(json.utf8))
+        XCTAssertEqual(reply.gen, 2)
+        XCTAssertEqual(reply.face?.id, "user_a")
+        XCTAssertEqual(reply.face?.order, 12)
+        XCTAssertEqual(reply.face?.packedFrame, PackedFrame())
+        XCTAssertNil(try JSONDecoder().decode(FaceOpReply.self, from: Data(#"{"ok":true,"gen":1}"#.utf8)).face)
+    }
+
     func testFaceUpsertWithoutIdOmitsIdField() throws {
         let payload = FaceUpsertPayload(name: "新表情", type: "parts", frameHex: String(repeating: "00", count: PackedFrame.byteCount))
         let data = try RinaCommand.faceUpsert(face: payload).encode()

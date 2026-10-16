@@ -610,14 +610,30 @@ final class FaceLibraryModel {
         let generation = connection.connectionGeneration
         let revision = boardLoadRevision
         do {
-            _ = try await connection.faceUpsert(payload, createOnly: createOnly,
-                                                expectedBootId: source?.expectedBootId,
-                                                expectedGen: source?.expectedGen)
+            let reply = try await connection.faceUpsert(payload, createOnly: createOnly,
+                                                        expectedBootId: source?.expectedBootId,
+                                                        expectedGen: source?.expectedGen)
             guard connection.connectionGeneration == generation,
                   boardStillShown(connection, since: revision) else { return .pending(id: targetID) }
-            guard await reload(connection: connection) else {
-                errorMessage = NSLocalizedString("结果待确认：请连接原面板后再次保存以核对", comment: "face save needs readback")
-                return .pending(id: targetID)
+            // The reply's record replaces a readback only when its generation is
+            // the next one after the shown library: then no other writer can
+            // have changed anything else in between.
+            if revision == boardLoadRevision, boardDocumentBelongs(to: connection),
+               boardBootId == connection.bootId, let gen = reply.gen, let shown = boardFacesGen, gen == shown + 1,
+               let stored = reply.face, stored.id == targetID, stored.packedFrame != nil {
+                var document = faceDocument
+                if let index = document.faces.firstIndex(where: { $0.id == targetID }) {
+                    document.faces[index] = stored
+                } else {
+                    document.faces.append(stored)
+                }
+                faceDocument = document
+                boardFacesGen = gen
+            } else {
+                guard await reload(connection: connection) else {
+                    errorMessage = NSLocalizedString("结果待确认：请连接原面板后再次保存以核对", comment: "face save needs readback")
+                    return .pending(id: targetID)
+                }
             }
             guard matchesSavedPayload(payload, expectedOrder: order) else {
                 errorMessage = NSLocalizedString("保存核对失败：板上内容与提交不同，请重新载入或另存", comment: "face save readback conflict")
