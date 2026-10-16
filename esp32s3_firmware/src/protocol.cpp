@@ -683,11 +683,30 @@ static bool checkFacesWriteVersion(ClientSlot& c, uint8_t seq, JsonDocument& d, 
 }
 
 // --- Incremental saved-face commands (docs/RINALINK_PROTOCOL_V1.md §7.2) ---------------
+// Copies the record `id` as stored (after canonicalization) into `dst`, in the
+// expanded GET_FACES form: an ID-only parts record gets its composed frameBytes.
+static void addStoredFace(JsonObject dst, JsonVariant document, const String& id) {
+    for (JsonObject face : document["faces"].as<JsonArray>()) {
+        if (id != (const char*)(face["id"] | "")) continue;
+        dst.set(face);
+        if (dst["frameBytes"].isNull()) {
+            uint8_t frame[FRAME_BYTES];
+            String error;
+            if (!materializeSavedFace(face, frame, error)) return; // validated by writeSavedFaces
+            JsonArray bytes = dst.createNestedArray("frameBytes");
+            for (uint8_t byte : frame) bytes.add(byte);
+        }
+        return;
+    }
+}
+
 // Read saved_faces.json -> mutate in place -> validate -> atomic write -> install the
-// in-memory document -> gen++ -> reply {ok,v,gen,count}. `mutate` returns false with (errCode,errMsg) set to
-// abort before any write; a false result with errCode==0 is treated as 400.
+// in-memory document -> gen++ -> reply {ok,v,gen,count[,face]}. `mutate` returns false with (errCode,errMsg) set to
+// abort before any write; a false result with errCode==0 is treated as 400. When `replyFaceId`
+// names the written record, the reply carries it as stored (`face`).
 template <typename Fn>
-static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName, Fn mutate) {
+static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName, Fn mutate,
+                                const String* replyFaceId = nullptr) {
     if (!runtimeFsMounted()) {
         sendErrorReply(c, seq, 503, "LittleFS is not mounted");
         return;
@@ -733,11 +752,12 @@ static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName,
     touchRuntimeState();
 
     const size_t count = doc["faces"].as<JsonArray>().size();
-    DynamicJsonDocument out(160);
+    DynamicJsonDocument out(replyFaceId ? 3072 : 160);
     out["ok"] = true;
     out["v"] = runtimeStateVersion();
     out["gen"] = savedFacesGeneration();
     out["count"] = count;
+    if (replyFaceId) addStoredFace(out.createNestedObject("face"), doc.as<JsonVariant>(), *replyFaceId);
     sendJsonReply(c, msg::CMD, seq, out);
 }
 
@@ -1010,6 +1030,7 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
         }
     }
 
+    String writtenId;
     mutateFacesDocument(c, seq, "face_upsert", [&](PsramJsonDocument& doc, int& errCode, String& errMsg) -> bool {
         JsonArray faces = doc["faces"].as<JsonArray>();
         JsonObject existing;
@@ -1057,6 +1078,7 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
             if (!callIn.isNull())
                 existing["call"] = callIn;
             existing["updatedAtMs"] = (uint32_t)millis();
+            writtenId = idInStr;
             return true;
         }
         if (faces.size() >= MAX_AUTO_FACES) {
@@ -1085,8 +1107,9 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
         nf["savedAtMs"] = (uint32_t)millis();
         if (!savedAtStr.isEmpty())
             nf["savedAt"] = savedAtStr;
+        writtenId = newId;
         return true;
-    });
+    }, &writtenId);
 }
 
 static void handleFacesClearUser(ClientSlot& c, uint8_t seq) {

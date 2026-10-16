@@ -13,6 +13,7 @@ with tempfile.TemporaryDirectory(prefix='rina-faces-transfer-') as directory:
  source=h/'faces_transfer.cpp'
  source.write_text(r'''
 #include "../../src/protocol.cpp"
+#include "../../src/expression_parts.h"
 #include "stress_common.h"
 #include <cassert>
 const char* boardBootId() { return "transfer-boot"; }
@@ -51,6 +52,30 @@ int main(int argc,char**argv) {
  auto renamedDefault=c.cmd(seq++,"{\"cmd\":\"face_rename\",\"payload\":{\"id\":\"f0\",\"name\":\"Renamed default\",\"expectedBootId\":\"transfer-boot\",\"expectedGen\":"+std::to_string(beforeDefaultRename)+"}}");
  assert(renamedDefault.first==0xFF);assert(parse(renamedDefault.second)["code"].as<int>()==400);
  assert(savedFacesGeneration()==beforeDefaultRename);assert(runtimeAutoFaces()[0].isDefault);assert(runtimeAutoFaces()[0].name!="Renamed default");
+ // face_upsert answers with the record as stored and expanded like GET_FACES,
+ // so the app can confirm a save without reading the whole library back.
+ {
+  uint16_t ids[4];const char* raw[4]={"101","201","301","400"};
+  for(int i=0;i<4;++i)assert(expression_parts::parseId(raw[i],ids[i]));
+  uint8_t composed[FRAME_BYTES];assert(expression_parts::compose(ids,composed));
+  char hex[FRAME_BYTES*2+1];writePackedFrameHex(composed,hex);
+  const std::string call="\"call\":{\"leye\":\"101\",\"reye\":\"201\",\"mouth\":\"301\",\"cheek\":\"400\"}";
+  const uint32_t g0=savedFacesGeneration();
+  auto pure=c.cmd(seq++,"{\"cmd\":\"face_upsert\",\"payload\":{\"createOnly\":true,\"expectedBootId\":\"transfer-boot\",\"expectedGen\":"+std::to_string(g0)+",\"face\":{\"id\":\"user_pure\",\"name\":\"Pure\",\"type\":\"parts\",\"frameHex\":\""+hex+"\","+call+"}}}");
+  assert(pure.first==0x81);auto pr=parse(pure.second);
+  assert(pr["gen"].as<uint32_t>()==g0+1);
+  JsonObject pf=pr["face"];assert(!pf.isNull());
+  assert(std::string(pf["id"]|"")=="user_pure"&&std::string(pf["name"]|"")=="Pure");
+  assert(std::string(pf["type"]|"")=="parts"&&std::string(pf["partsCatalog"]|"")==expression_parts::CATALOG);
+  assert(pf["order"].as<int>()==65&&pf["frameBytes"].size()==FRAME_BYTES);
+  for(size_t i=0;i<FRAME_BYTES;++i)assert(pf["frameBytes"][i].as<uint8_t>()==composed[i]);
+  // A stale call with drawn pixels is stored, and reported, as custom.
+  auto drawn=c.cmd(seq++,"{\"cmd\":\"face_upsert\",\"payload\":{\"expectedBootId\":\"transfer-boot\",\"expectedGen\":"+std::to_string(g0+1)+",\"face\":{\"id\":\"user_pure\",\"name\":\"Drawn\",\"type\":\"parts\",\"frameHex\":\""+frame+"\","+call+"}}}");
+  assert(drawn.first==0x81);auto dr=parse(drawn.second);JsonObject df=dr["face"];
+  assert(std::string(df["type"]|"")=="custom"&&df["call"].isNull()&&df["partsCatalog"].isNull());
+  assert(std::string(df["name"]|"")=="Drawn"&&df["order"].as<int>()==65);
+  for(size_t i=0;i<FRAME_BYTES;++i)assert(df["frameBytes"][i].as<uint8_t>()==0);
+ }
  puts("PASS faces conditional writes, immutable RAM pages, generation invalidation, bulk commit conflict, display unchanged");
 }
 ''')
