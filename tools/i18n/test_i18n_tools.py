@@ -160,6 +160,15 @@ class ToolTest(unittest.TestCase):
         self.assertIn("en", catalog["strings"]["甲"].get("localizations", {}))
         self.assertNotIn("localizations", catalog["strings"]["乙"])
 
+    # -- argument errors ------------------------------------------------------
+    def test_mistyped_flag_is_rejected_without_writing(self):
+        self.write_catalog({"甲": {}})
+        self.write_dict([{"k": "甲", "en": "A"}])
+        result = self.run_apply("--chek")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("--chek", result.stderr)
+        self.assertNotIn("localizations", self.read_catalog()["strings"]["甲"])
+
 
 if __name__ == "__main__":
     unittest.main()

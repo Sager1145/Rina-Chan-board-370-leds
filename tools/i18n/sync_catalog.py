@@ -16,7 +16,7 @@ Two sources, because neither is complete on its own:
 Run a build first, then:
   python3 tools/i18n/sync_catalog.py [--check] [--objroot PATH]
 """
-import glob, json, os, re, subprocess, sys
+import argparse, glob, json, os, re, subprocess, sys
 
 from xcstrings_io import CATALOG, ROOT, load_xcstrings, write_xcstrings
 
@@ -101,15 +101,15 @@ def keys_in_sources():
 
 
 def main():
-    check = "--check" in sys.argv
-    if "--objroot" in sys.argv:
-        try:
-            override = sys.argv[sys.argv.index("--objroot") + 1]
-        except IndexError:
-            sys.exit("--objroot requires a path")
-        stringsdata_root = os.path.abspath(override)
-    else:
-        stringsdata_root = objroot()
+    parser = argparse.ArgumentParser(
+        description="Add strings that exist in the code but are missing from the catalog.")
+    parser.add_argument("--check", action="store_true",
+                        help="report missing or stale keys without writing")
+    parser.add_argument("--objroot", metavar="PATH",
+                        help="the build's intermediates directory (default: ask xcodebuild)")
+    args = parser.parse_args()
+    check = args.check
+    stringsdata_root = os.path.abspath(args.objroot) if args.objroot else objroot()
     found = keys_in_code(stringsdata_root)
     for key, comment in keys_in_sources().items():
         found.setdefault(key, comment)

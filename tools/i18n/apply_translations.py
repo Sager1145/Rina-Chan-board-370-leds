@@ -23,7 +23,7 @@ sessions are editing the project.
 
 Usage:  python3 tools/i18n/apply_translations.py [--check] [--force] [--only KEY]...
 """
-import json, os, re, sys
+import argparse, json, os, re, sys
 
 from xcstrings_io import CATALOG, load_xcstrings, write_xcstrings
 
@@ -174,19 +174,16 @@ def build_variations(plural_val):
 
 
 def parse_args(argv):
-    check = "--check" in argv
-    force = "--force" in argv
-    only = set()
-    i = 0
-    while i < len(argv):
-        if argv[i] == "--only":
-            if i + 1 >= len(argv):
-                sys.exit("--only requires a key")
-            only.add(argv[i + 1])
-            i += 2
-        else:
-            i += 1
-    return check, force, only
+    parser = argparse.ArgumentParser(
+        description="Fill zh-Hant / ja / en translations into Localizable.xcstrings.")
+    parser.add_argument("--check", action="store_true",
+                        help="report what would change without writing")
+    parser.add_argument("--force", action="store_true",
+                        help="overwrite existing translations and their shape")
+    parser.add_argument("--only", action="append", default=[], metavar="KEY",
+                        help="limit writes to KEY (repeatable)")
+    args = parser.parse_args(argv)
+    return args.check, args.force, set(args.only)
 
 
 def main():

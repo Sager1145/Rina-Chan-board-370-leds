@@ -1,5 +1,6 @@
 #include "battery_calibration.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace {
@@ -40,15 +41,8 @@ void batteryCalibSanitize(BatteryCalibState& state) {
     if (!std::isfinite(state.cutoffV))
         state.cutoffV = kLutBottomV;
 
-    if (state.maxV < kMaxClampLoV)
-        state.maxV = kMaxClampLoV;
-    else if (state.maxV > kMaxClampHiV)
-        state.maxV = kMaxClampHiV;
-
-    if (state.cutoffV < kCutoffClampLoV)
-        state.cutoffV = kCutoffClampLoV;
-    else if (state.cutoffV > kCutoffClampHiV)
-        state.cutoffV = kCutoffClampHiV;
+    state.maxV = std::clamp(state.maxV, kMaxClampLoV, kMaxClampHiV);
+    state.cutoffV = std::clamp(state.cutoffV, kCutoffClampLoV, kCutoffClampHiV);
 
     if (state.maxV - state.cutoffV < kMinSpanV) {
         state.maxV = kLutTopV;

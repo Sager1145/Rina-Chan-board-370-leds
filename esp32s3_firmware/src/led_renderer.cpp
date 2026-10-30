@@ -129,14 +129,7 @@ static bool packedFrameRateReady(uint32_t now) {
 }
 
 static void copyText(char* out, size_t outSize, const char* input) {
-    if (outSize == 0)
-        return;
-    if (!input)
-        input = "";
-    size_t i = 0;
-    for (; i + 1 < outSize && input[i] != '\0'; ++i)
-        out[i] = input[i];
-    out[i] = '\0';
+    strlcpy(out, input ? input : "", outSize);
 }
 
 bool validatePackedFrame(const uint8_t* packedBits, String& error) {

@@ -26,6 +26,7 @@
 #include "board_identity.h"
 #include "wifi_manager.h"
 #include "scroll_session.h"
+#include "utils.h"
 
 namespace {
 constexpr uint16_t SERIAL_CMD_MAX = 192;
@@ -81,10 +82,11 @@ int tokenize(char* line, char** argv, int maxArgs) {
 }
 
 bool hexByte(const char* text, uint8_t& out) {
-    if (!isxdigit(text[0]) || !isxdigit(text[1]))
+    const int high = hexNibble(text[0]);
+    const int low = high < 0 ? -1 : hexNibble(text[1]);
+    if (low < 0)
         return false;
-    char tmp[3] = {text[0], text[1], 0};
-    out = static_cast<uint8_t>(strtoul(tmp, nullptr, 16));
+    out = static_cast<uint8_t>((high << 4) | low);
     return true;
 }
 

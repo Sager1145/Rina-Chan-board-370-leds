@@ -211,13 +211,23 @@ setInterval(refresh,3000);
 </body></html>
 )HTML";
 
+void sendJson(int code, const JsonDocument& d) {
+    String body;
+    serializeJson(d, body);
+    g_server.send(code, "application/json", body);
+}
+
 void sendJsonError(int code, const char* msg) {
     StaticJsonDocument<128> d;
     d["ok"] = false;
     d["error"] = msg;
-    String body;
-    serializeJson(d, body);
-    g_server.send(code, "application/json", body);
+    sendJson(code, d);
+}
+
+void sendJsonOk() {
+    StaticJsonDocument<32> d;
+    d["ok"] = true;
+    sendJson(200, d);
 }
 
 void handleRoot() {
@@ -228,9 +238,7 @@ void handleStatus() {
     StaticJsonDocument<768> d;
     JsonObject o = d.to<JsonObject>();
     wifiManagerGetStatusJson(o);
-    String body;
-    serializeJson(d, body);
-    g_server.send(200, "application/json", body);
+    sendJson(200, d);
 }
 
 void handleScanPost() {
@@ -242,9 +250,7 @@ void handleScanPost() {
     StaticJsonDocument<64> d;
     d["ok"] = true;
     d["scanning"] = true;
-    String body;
-    serializeJson(d, body);
-    g_server.send(200, "application/json", body);
+    sendJson(200, d);
 }
 
 void handleScanGet() {
@@ -254,9 +260,7 @@ void handleScanGet() {
     d["scanning"] = wifiManagerScanInProgress();
     JsonArray nets = d.createNestedArray("networks");
     wifiManagerGetScanJson(nets);
-    String body;
-    serializeJson(d, body);
-    g_server.send(200, "application/json", body);
+    sendJson(200, d);
 }
 
 bool parseBody(StaticJsonDocument<512>& d) {
@@ -280,11 +284,7 @@ void handleCredentials() {
     }
     // Answer first: switching mode may restart the SoftAP and drop this very
     // connection, so the 200 must be on the wire before the radio changes.
-    StaticJsonDocument<32> out;
-    out["ok"] = true;
-    String body;
-    serializeJson(out, body);
-    g_server.send(200, "application/json", body);
+    sendJsonOk();
     g_server.client().flush();
     wifiManagerSetMode("sta_or_ap");
     wifiManagerConnect();
@@ -302,11 +302,7 @@ void handleHotspot() {
         sendJsonError(400, "ssid_required");
         return;
     }
-    StaticJsonDocument<32> out;
-    out["ok"] = true;
-    String body;
-    serializeJson(out, body);
-    g_server.send(200, "application/json", body);
+    sendJsonOk();
 }
 
 void handleMode() {
@@ -320,11 +316,7 @@ void handleMode() {
         sendJsonError(400, "bad_mode");
         return;
     }
-    StaticJsonDocument<32> out;
-    out["ok"] = true;
-    String body;
-    serializeJson(out, body);
-    g_server.send(200, "application/json", body);
+    sendJsonOk();
 }
 
 void handleAp() {
@@ -343,11 +335,7 @@ void handleAp() {
         sendJsonError(400, "ap_settings_rejected");
         return;
     }
-    StaticJsonDocument<32> out;
-    out["ok"] = true;
-    String body;
-    serializeJson(out, body);
-    g_server.send(200, "application/json", body);
+    sendJsonOk();
 }
 
 void handleNotFound() {

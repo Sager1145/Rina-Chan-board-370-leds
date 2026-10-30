@@ -141,7 +141,7 @@ final class LipSyncModel {
     let loadError: String?
 
     private var loopTask: Task<Void, Never>?
-    private var awaitingAudioSince: Date?
+    private var awaitingAudioSince: ContinuousClock.Instant?
     /// In-flight frames are never cancelled; a newer one just supersedes it.
     @ObservationIgnored private var sender: LatestValueSender<LipSyncSubmission>?
     @ObservationIgnored private weak var lastConnection: BoardConnection?
@@ -361,7 +361,7 @@ final class LipSyncModel {
         }
         lastSentFrame = nil
         isRunning = true
-        awaitingAudioSince = Date()
+        awaitingAudioSince = ContinuousClock.now
         errorMessage = nil
         lastDiagnosticsPublish = nil
 
@@ -439,7 +439,7 @@ final class LipSyncModel {
         }
         let window = currentWindow()
         guard !window.samples.isEmpty else {
-            if let since = awaitingAudioSince, Date().timeIntervalSince(since) >= 2 {
+            if let since = awaitingAudioSince, ContinuousClock.now - since >= .seconds(2) {
                 stop(connection: connection)
                 errorMessage = String(localized: "麦克风未传入音频数据，请检查输入设备后重新开始同步")
             }

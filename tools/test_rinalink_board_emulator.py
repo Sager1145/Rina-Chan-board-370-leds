@@ -299,5 +299,28 @@ class EmulatorProtocolTests(unittest.TestCase):
         self.assertEqual(ok["frameCount"], 27)
 
 
+class EmulatorServerTests(unittest.TestCase):
+    def test_server_accepts_connections_and_answers_status(self):
+        spec = importlib.util.spec_from_file_location("emulator", Path(__file__).with_name("rinalink_board_emulator.py"))
+        emulator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(emulator)
+        emulator.log = io.StringIO()
+        with emulator.make_server("127.0.0.1", 0) as server:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            try:
+                for seq in (1, 2):
+                    # Two connections: each one gets its own handler thread.
+                    with socket.create_connection(server.server_address, timeout=2) as client:
+                        client.sendall(emulator.frame(0x02, seq, b""))
+                        header = client.recv(6)
+                        body = b""
+                        while len(body) < struct.unpack("<H", header[4:])[0]:
+                            body += client.recv(4096)
+                        self.assertEqual((header[1], header[2]), (0x82, seq))
+                        self.assertEqual(json.loads(body)["ok"], True)
+            finally:
+                server.shutdown()
+
+
 if __name__ == "__main__":
     unittest.main()

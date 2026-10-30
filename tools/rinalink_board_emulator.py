@@ -19,7 +19,7 @@ list (GET_FACES stays an empty document). RINA_EMU_HOST
 and RINA_EMU_PORT override the listening address and port. RINA_EMU_BOARD_ID
 and RINA_EMU_BOARD_NAME optionally distinguish boards on separate local ports.
 """
-import json, socket, struct, threading, time, sys, os
+import json, socketserver, struct, threading, time, sys, os
 HOST = os.environ.get("RINA_EMU_HOST", "0.0.0.0")
 PORT = int(os.environ.get("RINA_EMU_PORT", "5370"))
 BOARD_ID = os.environ.get("RINA_EMU_BOARD_ID")
@@ -111,31 +111,28 @@ def packed_frame():
     bitmap = state.get("scrollBitmap", b"")
     if not bitmap or not state["scrollActive"]:
         return state.get("packedFrame", bytes(47))
-    width = meta["width"]
-    stride = (width + 7) // 8
-    viewport = meta.get("viewportX", 0)
     result = bytearray(47)
-    led = 0
-    for y, length in enumerate((18, 20, 20, 20, 22, 22, 22, 22, 22, 22, 22, 22, 22, 20, 20, 20, 18, 16)):
-        for x in range((22 - length) // 2, (22 + length) // 2):
-            source = index + viewport + x
-            offset = y * stride + source // 8
-            if 0 <= source < width and offset < len(bitmap) and bitmap[offset] & (1 << (source % 8)):
-                result[led // 8] |= 1 << (led % 8)
-            led += 1
+    for led, lit in enumerate(bitmap_leds(bitmap, meta["width"], index, meta.get("viewportX", 0))):
+        if lit:
+            result[led // 8] |= 1 << (led % 8)
     return bytes(result)
 
-def bitmap_frame_lit(bitmap, width, offset, viewport=0):
-    """True when frame `offset` shows any lit LED, matching scrollBitmapFrameHasAnyLit."""
+# LEDs per matrix row, top to bottom; each row is centred in the 22-column grid.
+ROW_LENGTHS = (18, 20, 20, 20, 22, 22, 22, 22, 22, 22, 22, 22, 22, 20, 20, 20, 18, 16)
+
+def bitmap_leds(bitmap, width, offset, viewport=0):
+    """Yield, in strip order, whether each LED is lit in frame `offset` of a scroll bitmap."""
     stride = (width + 7) // 8
-    for y, length in enumerate((18, 20, 20, 20, 22, 22, 22, 22, 22, 22, 22, 22, 22, 20, 20, 20, 18, 16)):
+    for y, length in enumerate(ROW_LENGTHS):
         x_start = (22 - length) // 2
         for x in range(x_start, x_start + length):
             source = offset + viewport + x
             index = y * stride + source // 8
-            if 0 <= source < width and index < len(bitmap) and bitmap[index] & (1 << (source % 8)):
-                return True
-    return False
+            yield 0 <= source < width and index < len(bitmap) and bool(bitmap[index] & (1 << (source % 8)))
+
+def bitmap_frame_lit(bitmap, width, offset, viewport=0):
+    """True when frame `offset` shows any lit LED, matching scrollBitmapFrameHasAnyLit."""
+    return any(bitmap_leds(bitmap, width, offset, viewport))
 
 def first_lit_rotation(bitmap, width, frame_count):
     """handleBlobEnd: first lit frame, or 0 when the bitmap is dark. Viewport uploads skip this."""
@@ -379,16 +376,24 @@ def heartbeat():
                 with CONNS_LOCK:
                     if client in CONNS:
                         CONNS.remove(client)
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+    request_queue_size = 8
+class Handler(socketserver.BaseRequestHandler):
+    def handle(self):
+        L("accept", self.client_address); serve(self.request)
+def make_server(host=HOST, port=PORT):
+    return Server((host, port), Handler)
 def main():
     global log
     if len(sys.argv) > 1:
         log = open(sys.argv[1], "a", buffering=1)
     threading.Thread(target=heartbeat, daemon=True).start()
     L("scroll flag:", FLAG)
-    srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind((HOST, PORT)); srv.listen(8); L("listening", HOST, PORT)
-    while True:
-        c, a = srv.accept(); L("accept", a); threading.Thread(target=serve, args=(c,), daemon=True).start()
+    with make_server() as srv:
+        L("listening", *srv.server_address)
+        srv.serve_forever()
 
 if __name__ == "__main__":
     main()

@@ -2,6 +2,8 @@
 #include "utils.h"
 #include <esp_heap_caps.h>
 #include <string.h>
+#include <cctype>
+#include <charconv>
 
 static constexpr size_t SCROLL_FRAME_BUFFER_BYTES =
     static_cast<size_t>(MAX_SCROLL_FRAMES) * static_cast<size_t>(FRAME_BYTES);
@@ -184,9 +186,7 @@ static bool canonicalOutputUuid(const char* value, size_t length) {
         if (hyphen) {
             if (c != '-')
                 return false;
-        } else if (!((c >= '0' && c <= '9') ||
-                     (c >= 'a' && c <= 'f') ||
-                     (c >= 'A' && c <= 'F'))) {
+        } else if (!std::isxdigit(static_cast<unsigned char>(c))) {
             return false;
         }
     }
@@ -196,15 +196,12 @@ static bool canonicalOutputUuid(const char* value, size_t length) {
 static bool outputPosition(const char* value, uint32_t& positionMs) {
     if (!value || !value[0])
         return false;
+    // Digits only: from_chars rejects signs and whitespace and reports overflow.
+    const char* end = value + strlen(value);
     uint32_t parsed = 0;
-    for (const char* p = value; *p; ++p) {
-        if (*p < '0' || *p > '9')
-            return false;
-        const uint32_t digit = static_cast<uint32_t>(*p - '0');
-        if (parsed > (UINT32_MAX - digit) / 10U)
-            return false;
-        parsed = parsed * 10U + digit;
-    }
+    const std::from_chars_result result = std::from_chars(value, end, parsed);
+    if (result.ec != std::errc() || result.ptr != end)
+        return false;
     positionMs = parsed;
     return true;
 }

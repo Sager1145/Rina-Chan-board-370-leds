@@ -27,6 +27,8 @@ def function(source: str, signature: str) -> str:
 
 code = r'''
 #include <cassert>
+#include <cctype>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>

@@ -133,7 +133,7 @@ public final class BoardGroupCoordinator {
     /// keeps re-requesting adoption (e.g. a `.task(id:)` that restarts every
     /// time `isStarting` flips) can't hammer disagreeing/offline boards with
     /// `GET_SCROLL_META` on every restart.
-    private var lastAdoptFailure: (groupID: UUID, at: Date)?
+    private var lastAdoptFailure: (groupID: UUID, at: ContinuousClock.Instant)?
     private var currentAnchor: GroupSchedule.Anchor?
     /// Retain the requested rate while paused, even with no live boards;
     /// reconnect must clamp against the new connections' capabilities.
@@ -179,7 +179,7 @@ public final class BoardGroupCoordinator {
     /// R6a: the last time a rejoin attempt for a member left it still not a
     /// participant, so the once-a-second cheap pass backs off that member
     /// for 5 s instead of hammering an offline/disagreeing board every tick.
-    private var lastRejoinFailureAt: [String: Date] = [:]
+    private var lastRejoinFailureAt: [String: ContinuousClock.Instant] = [:]
     /// Bumped every `stop()`/`play()`; a `play()` call captures it and
     /// refuses to act (and its re-anchor loop refuses to run) once it no
     /// longer matches.
@@ -539,7 +539,7 @@ public final class BoardGroupCoordinator {
         // or it cancels that play and strands its starting state.
         guard !isStarting, !(isPlaying || isPaused) else { return false }
         if let lastAdoptFailure, lastAdoptFailure.groupID == group.id,
-           Date().timeIntervalSince(lastAdoptFailure.at) < 5 {
+           ContinuousClock.now - lastAdoptFailure.at < .seconds(5) {
             return false
         }
         let groupID = group.id
@@ -554,7 +554,7 @@ public final class BoardGroupCoordinator {
         if result {
             lastAdoptFailure = nil
         } else {
-            lastAdoptFailure = (groupID: groupID, at: Date())
+            lastAdoptFailure = (groupID: groupID, at: ContinuousClock.now)
         }
         return result
     }
@@ -1078,7 +1078,7 @@ public final class BoardGroupCoordinator {
         for member in reconnectedNonParticipants(group) {
             let id = member.physicalBoardID
             guard !rejoinInFlight.contains(id) else { continue }
-            if let lastFailure = lastRejoinFailureAt[id], Date().timeIntervalSince(lastFailure) < 5 { continue }
+            if let lastFailure = lastRejoinFailureAt[id], ContinuousClock.now - lastFailure < .seconds(5) { continue }
             guard playEpoch == epoch, !isPaused else { return } // N3/B1: recheck before each rejoin in the loop
             rejoinInFlight.insert(id)
             await rejoin(member: member, groupID: groupID, revision: revision, epoch: epoch)
@@ -1086,7 +1086,7 @@ public final class BoardGroupCoordinator {
             guard playEpoch == epoch else { return }
             rejoinInFlight.remove(id)
             if participants[id] == nil {
-                lastRejoinFailureAt[id] = Date()
+                lastRejoinFailureAt[id] = ContinuousClock.now
             } else {
                 lastRejoinFailureAt.removeValue(forKey: id)
             }
@@ -1212,7 +1212,7 @@ public final class BoardGroupCoordinator {
             guard playEpoch == epoch else { return }
             rejoinInFlight.remove(id)
             if participants[id] == nil {
-                lastRejoinFailureAt[id] = Date()
+                lastRejoinFailureAt[id] = ContinuousClock.now
             } else {
                 lastRejoinFailureAt.removeValue(forKey: id)
             }
