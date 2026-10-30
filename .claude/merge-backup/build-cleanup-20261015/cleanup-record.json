@@ -1,0 +1,46 @@
+{
+  "all_five_build_folders_absent": true,
+  "deleted_generated_only": [
+    "dd-coord/Build",
+    "dd-full-check/Build"
+  ],
+  "recoverable_cloud_trash": {
+    "dd-device/Build": "/Users/sager/Library/Mobile Documents/.Trash/Build",
+    "dd-l10n/Build": "/Users/sager/Library/Mobile Documents/.Trash/Build 2",
+    "dd-views/Build": "/Users/sager/Library/Mobile Documents/.Trash/Build 3"
+  },
+  "preserved_test_configurations": [
+    ".claude/merge-backup/build-cleanup-20261015/dd-views/RinaBoard_iphonesimulator27.0-arm64.xctestrun",
+    ".claude/merge-backup/build-cleanup-20261015/dd-l10n/RinaBoard_iphonesimulator27.0-arm64-x86_64.xctestrun",
+    ".claude/merge-backup/build-cleanup-20261015/dd-l10n/RinaBoard_iphonesimulator27.0-arm64-x86_64 2.xctestrun"
+  ],
+  "original_recovery_patch_present": true,
+  "connection_source_present": true,
+  "preserved_sibling_evidence": {
+    "dd-coord": [
+      "SourcePackages",
+      "Logs",
+      "info.plist"
+    ],
+    "dd-device": [
+      "SourcePackages",
+      "Logs",
+      "info.plist"
+    ],
+    "dd-full-check": [
+      "SourcePackages",
+      "Logs",
+      "info.plist"
+    ],
+    "dd-l10n": [
+      "SourcePackages",
+      "Logs",
+      "info.plist"
+    ],
+    "dd-views": [
+      "SourcePackages",
+      "Logs",
+      "info.plist"
+    ]
+  }
+}

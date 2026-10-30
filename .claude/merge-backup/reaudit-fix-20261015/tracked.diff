@@ -1,0 +1,3578 @@
+diff --git a/README.md b/README.md
+index bb8ba21..66c40bd 100644
+--- a/README.md
++++ b/README.md
+@@ -6,6 +6,8 @@ RinaChanBoard 使用 **ESP32-S3 + 370 颗 WS2812B LED**，通过 RinaBoard 原
+ 
+ [3D 打印模型](https://makerworld.com/zh/models/2569348-rina-chan-board-rina-board-rina-chan-board#profileId-2832058) · [Apple 应用开发说明](ios/README.zh-CN.md) · [Mac 构建与使用](docs/mac/README.md) · [RinaLink 协议](docs/RINALINK_PROTOCOL_V1.md)
+ 
++[当前功能、接口与固件 × iOS 联合架构审计](docs/FUNCTION_INTERFACE_JOINT_REAUDIT_2026_10_15_ZH.md)（2026-10-15，重新审计，含 44 个命令、保存链路与数据流收敛建议）。
++
+ ## 可以做什么
+ 
+ ### 画出、组合并收藏表情
+diff --git a/docs/RINALINK_PROTOCOL_V1.md b/docs/RINALINK_PROTOCOL_V1.md
+index 159a484..2303a04 100644
+--- a/docs/RINALINK_PROTOCOL_V1.md
++++ b/docs/RINALINK_PROTOCOL_V1.md
+@@ -202,7 +202,7 @@ Used for **scroll frame sets** and **saved-faces JSON**.
+ | 0x21 | `BLOB_CHUNK` | `u32 offset LE` · bytes (for `scroll` the chunk must be a whole number of 47-byte frames) | `{"ok":true,"offset":<next>,"frames":<count so far>}` |
+ | 0x22 | `BLOB_END` | JSON `{"start":bool}` (scroll) / `{}` (faces) | scroll: old `/api/scroll` 200 JSON; faces: `{"ok":true,"v":n,"bytes":n}` after validate + atomic write + install of that in-memory document |
+ | 0x23 | `BLOB_ABORT` | — | `{"ok":true}` |
+-| 0x24 | `GET_FACES` | `{"offset":n,"gen"?:n}` | `u32 gen LE` · raw `saved_faces.json` bytes from `offset`, MORE flag set while more remain; last message has MORE=0 |
++| 0x24 | `GET_FACES` | `{"offset":n,"gen"?:n}` | `u32 gen LE` · expanded saved-face JSON bytes from `offset`, MORE flag set while more remain; last message has MORE=0 |
+ 
+ `BLOB_BEGIN`'s reply `offset` is always 0 — it never resumes a prior session (a
+ fresh upload always starts at offset 0). `GET_FACES` replies are prefixed with the
+@@ -449,6 +449,51 @@ the current file. A partial write never replaces the previous valid file.
+ | `faces_clear_user` | — | deletes every non-default face |
+ `GET_FACES` (with `gen`) remains the bulk download; `BLOB kind:"faces"` remains for import.
+ 
++
++#### Board-owned storage and display-safe transfer (2026-10-15)
++
++`get_info.caps` advertises `faces_parts_v4`, `faces_conditional_v1`,
++`faces_snapshot_v1`, and `faces_conditional_read_v1`. Unknown capability tokens
++must be ignored. `GET_STATUS` also reports `bootId` and `facesGeneration`.
++
++With `faces_conditional_v1`, every incremental mutation accepts the optional pair
++`expectedBootId` (string) and `expectedGen` (uint32). Both must be supplied together;
++a stale pair returns 409 before any write. `face_upsert` also accepts
++`createOnly:true`, requiring a stable client-supplied ID and returning 409 if that
++ID already exists. Existing content-based `face.expect` remains available.
++`BLOB_BEGIN kind:"faces"` accepts the same version pair; it is checked at both
++BEGIN and END, so a different writer cannot be silently overwritten during an
++upload. Legacy requests without guards retain unconditional semantics.
++
++A parts face may omit pixel fields only with
++`partsCatalog:"rina_expression_parts_370_runtime_v4"`, `partsVersion:4`, and
++`call:{leye,reye,mouth,cheek}` containing valid stable IDs. The firmware resolves
++these from its generated read-only catalog. Full bitmaps remain accepted. A
++full bitmap with parts metadata is compacted only when its recomposed pixels
++match exactly; otherwise its bitmap is preserved as a custom face. Unknown
++ID-only catalogs/parts are rejected. Custom pixels remain 47 bytes, LSB-first,
++with the final six unused bits zero.
++
++The canonical LittleFS file may contain references, but ordinary `GET_FACES`
++always returns complete expanded `frameBytes` for compatibility. All pages for
++a generation come from one shared immutable PSRAM snapshot, at most 256 KiB;
++subsequent pages do not reopen flash. A changed requested `gen` returns 409.
++New readers may send `{offset:0,gen:G,bootId:B,ifUnchanged:true}`. When both boot
++ID and generation match, the reply is exactly the four-byte generation prefix,
++MORE=0; only a client holding the matching verified document may reuse it.
++Otherwise a different generation returns 409, or a different boot ID causes a
++normal complete read. Do not interpret an empty page as a cache hit without
++having made the conditional request.
++
++The App holds only a bounded read cache, coalesces concurrent reads, and clears
++formal list visibility on disconnect. Saving prepares a complete runtime table
++before the atomic file replacement and publishes it only after success. Reading,
++receiving a blob, and publishing the library never submit a display frame. The
++current framebuffer is retained; firmware auto switching and GPIO/serial actions
++continue to use the materialized runtime table. Flash operations remain mutually
++exclusive with RMT transmission; a commit may delay a refresh, not interleave its
++flash operation with LED output.
++
+ ### 7.3 Wi-Fi setup page (the only web UI left)
+ A ~10 KB single page embedded in flash (PROGMEM, no LittleFS assets), served on
+ `http://<board-ip>/` (port 80) whenever Wi-Fi is up; in hotspot mode the captive DNS maps
+diff --git a/esp32s3_firmware/src/protocol.cpp b/esp32s3_firmware/src/protocol.cpp
+index 5d0f823..772d822 100644
+--- a/esp32s3_firmware/src/protocol.cpp
++++ b/esp32s3_firmware/src/protocol.cpp
+@@ -90,6 +90,9 @@ struct BlobSession {
+     // faces
+     uint8_t* facesBuf = nullptr;
+     size_t facesCap = 0;
++    bool facesConditional = false;
++    uint32_t facesExpectedGen = 0;
++    String facesExpectedBootId;
+ 
+     // scroll_bitmap (§7.1): raw bitmap bytes are staged here. At BLOB_END, every
+     // frame is expanded into a full PSRAM staging buffer BEFORE
+@@ -129,6 +132,9 @@ struct BlobSession {
+             facesBuf = nullptr;
+         }
+         facesCap = 0;
++        facesConditional = false;
++        facesExpectedGen = 0;
++        facesExpectedBootId = "";
+         if (bitmapBuf) {
+             heap_caps_free(bitmapBuf);
+             bitmapBuf = nullptr;
+@@ -355,18 +361,6 @@ static void sendErrorReply(ClientSlot& c, uint8_t seq, int code, const String& m
+     emitJson(c, msg::ERR, seq, 0, d, false);
+ }
+ 
+-// --- Storage helpers -----------------------------------------------------------------
+-static bool existsFs(const String& p) {
+-    bool e = false;
+-    withStorageLock([&]() { e = LittleFS.exists(p); });
+-    return e;
+-}
+-static File openFs(const String& p, const char* m) {
+-    File f;
+-    withStorageLock([&]() { f = LittleFS.open(p, m); });
+-    return f;
+-}
+-
+ // --- JSON builders --------------------------------------------------------------------
+ static void addScroll(JsonObject o) {
+     ScrollSessionSnapshot s = scrollSessionSnapshot();
+@@ -423,6 +417,8 @@ static void buildStatusJson(JsonDocument& d, bool lite) {
+     d["ok"] = true;
+     d["v"] = runtimeStateVersion();
+     d["version"] = runtimeStateVersion();
++    d["bootId"] = boardBootId();
++    d["facesGeneration"] = savedFacesGeneration();
+     if (!lite) {
+         d["device"] = "RinaChanBoard";
+         d["uptimeMs"] = millis() - runtimeState().bootMs;
+@@ -663,9 +659,29 @@ static void handleGetInfo(ClientSlot& c, uint8_t seq) {
+     // Optional. Tells a later client that apply_saved_face success carries
+     // frameHex. Unknown tokens stay in the app's [String] caps list.
+     caps.add("apply_face_frame");
++    caps.add("faces_parts_v4");
++    caps.add("faces_conditional_v1");
++    caps.add("faces_snapshot_v1");
++    caps.add("faces_conditional_read_v1");
+     sendJsonReply(c, msg::CMD, seq, out);
+ }
+ 
++static bool checkFacesWriteVersion(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVariant p) {
++    JsonVariant boot = !p.isNull() && p.containsKey("expectedBootId") ? p["expectedBootId"].as<JsonVariant>() : d["expectedBootId"].as<JsonVariant>();
++    JsonVariant gen = !p.isNull() && p.containsKey("expectedGen") ? p["expectedGen"].as<JsonVariant>() : d["expectedGen"].as<JsonVariant>();
++    if (boot.isNull() && gen.isNull())
++        return true; // legacy clients retain their existing unconditional behavior
++    if (!boot.is<const char*>() || !gen.is<uint32_t>()) {
++        sendErrorReply(c, seq, 400, "expectedBootId and expectedGen must be supplied together");
++        return false;
++    }
++    if (strcmp(boot.as<const char*>(), boardBootId()) != 0 || gen.as<uint32_t>() != savedFacesGeneration()) {
++        sendErrorReply(c, seq, 409, "saved faces changed; reload before writing");
++        return false;
++    }
++    return true;
++}
++
+ // --- Incremental saved-face commands (docs/RINALINK_PROTOCOL_V1.md §7.2) ---------------
+ // Read saved_faces.json -> mutate in place -> validate -> atomic write -> install the
+ // in-memory document -> gen++ -> reply {ok,v,gen,count}. `mutate` returns false with (errCode,errMsg) set to
+@@ -714,7 +730,6 @@ static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName,
+         sendErrorReply(c, seq, 500, err);
+         return;
+     }
+-    installSavedFacesDocument(doc.as<JsonVariant>(), false);
+     touchRuntimeState();
+ 
+     const size_t count = doc["faces"].as<JsonArray>().size();
+@@ -790,8 +805,7 @@ static bool parseFaceFrameInput(JsonVariant faceIn, uint8_t* out, String& error)
+             out[i++] = static_cast<uint8_t>(iv);
+         }
+     } else {
+-        error = "face requires frameHex or frameBytes";
+-        return false;
++        return materializeSavedFace(faceIn.as<JsonObject>(), out, error);
+     }
+     return validatePackedFrame(out, error);
+ }
+@@ -961,6 +975,11 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
+     const String typeStr(type);
+     const String idInStr(idIn);
+     JsonVariant callIn = faceIn["call"];
++    const bool createOnly = cbool(d, p, "createOnly", false);
++    if (createOnly && idInStr.isEmpty()) {
++        sendErrorReply(c, seq, 400, "createOnly requires a stable face id");
++        return;
++    }
+     const char* savedAt = faceIn["savedAt"] | "";
+     const String savedAtStr(savedAt);
+ 
+@@ -997,6 +1016,9 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
+                 existing = face;
+         }
+         if (!idInStr.isEmpty() && !existing.isNull()) {
++            if (createOnly) {
++                errCode = 409; errMsg = "face id already exists"; return false;
++            }
+             if (strcmp(existing["type"] | "", "default") == 0) {
+                 errCode = 400;
+                 errMsg = "cannot overwrite a default face";
+@@ -1021,6 +1043,10 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
+             fb.clear();
+             for (size_t i = 0; i < FRAME_BYTES; ++i)
+                 fb.add(frame[i]);
++            existing.remove("partsCatalog");
++            existing.remove("partsVersion");
++            if (!faceIn["partsCatalog"].isNull()) existing["partsCatalog"] = faceIn["partsCatalog"];
++            if (!faceIn["partsVersion"].isNull()) existing["partsVersion"] = faceIn["partsVersion"];
+             existing.remove("call");
+             if (!callIn.isNull())
+                 existing["call"] = callIn;
+@@ -1037,6 +1063,8 @@ static void handleFaceUpsert(ClientSlot& c, uint8_t seq, JsonDocument& d, JsonVa
+         nf["id"] = newId;
+         nf["name"] = nameStr;
+         nf["type"] = typeStr;
++        if (!faceIn["partsCatalog"].isNull()) nf["partsCatalog"] = faceIn["partsCatalog"];
++        if (!faceIn["partsVersion"].isNull()) nf["partsVersion"] = faceIn["partsVersion"];
+         JsonArray fb = nf.createNestedArray("frameBytes");
+         for (size_t i = 0; i < FRAME_BYTES; ++i)
+             fb.add(frame[i]);
+@@ -1204,6 +1232,11 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
+         sendJsonReply(c, msg::CMD, seq, out);
+         return;
+     }
++    const bool faceWrite = strcmp(cmd, "face_rename") == 0 || strcmp(cmd, "face_reorder") == 0 ||
++                           strcmp(cmd, "face_delete") == 0 || strcmp(cmd, "face_upsert") == 0 ||
++                           strcmp(cmd, "faces_clear_user") == 0;
++    if (faceWrite && !checkFacesWriteVersion(c, seq, d, p))
++        return;
+     if (strcmp(cmd, "face_rename") == 0) {
+         handleFaceRename(c, seq, d, p);
+         return;
+@@ -1817,6 +1850,8 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload,
+         c.blob.bitmapViewportX = viewportX;
+         g_activeScrollBlobSlot = selfSlot;
+     } else if (strcmp(kind, "faces") == 0) {
++        JsonVariant noPayload;
++        if (!checkFacesWriteVersion(c, seq, d, noPayload)) { resetBlob(c); return; }
+         if (totalBytes > MAX_FACES_DOCUMENT_BYTES) {
+             resetBlob(c);
+             sendErrorReply(c, seq, 413, "faces document too large");
+@@ -1831,6 +1866,9 @@ static void handleBlobBegin(ClientSlot& c, uint8_t seq, const uint8_t* payload,
+             return;
+         }
+         c.blob.kind = BlobKind::Faces;
++        c.blob.facesConditional = !d["expectedGen"].isNull();
++        c.blob.facesExpectedGen = d["expectedGen"] | 0U;
++        c.blob.facesExpectedBootId = d["expectedBootId"] | "";
+         c.blob.facesBuf = buf;
+         c.blob.facesCap = totalBytes;
+         c.blob.expectedOffset = 0;
+@@ -2141,6 +2179,12 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
+         resetBlob(c);
+         sendJsonReply(c, msg::BLOB_END, seq, out);
+     } else {
++        if (c.blob.facesConditional && (c.blob.facesExpectedGen != savedFacesGeneration() ||
++            c.blob.facesExpectedBootId != boardBootId())) {
++            resetBlob(c);
++            sendErrorReply(c, seq, 409, "saved faces changed during upload");
++            return;
++        }
+         PsramJsonDocument d(savedFacesJsonCapacityFor(c.blob.expectedOffset));
+         DeserializationError e = deserializeJson(d, c.blob.facesBuf, c.blob.expectedOffset, DeserializationOption::NestingLimit(32));
+         if (e) {
+@@ -2163,7 +2207,6 @@ static void handleBlobEnd(ClientSlot& c, uint8_t seq, const uint8_t* payload, ui
+             sendErrorReply(c, seq, 500, err);
+             return;
+         }
+-        installSavedFacesDocument(doc, false);
+         DynamicJsonDocument out(384);
+         out["ok"] = true;
+         out["v"] = runtimeStateVersion();
+@@ -2181,69 +2224,116 @@ static void handleBlobAbort(ClientSlot& c, uint8_t seq) {
+     sendJsonReply(c, msg::BLOB_ABORT, seq, out);
+ }
+ 
+-// GET_FACES reply payload = [gen:4 bytes LE][file bytes from offset]. The request
+-// may carry {"offset":n,"gen":g}; if gen is present and no longer matches the
+-// current saved_faces.json generation, the transfer is aborted with 409 so a
+-// multi-chunk download never silently splices together two different documents
+-// (item 12).
++// A shared immutable projection is bounded to one document, independent of client
++// count. Only the Core-0 dispatcher owns it. Pages never touch flash or the live
++// framebuffer; mutations invalidate it through savedFacesGeneration().
++static char* g_facesReadSnapshot = nullptr;
++static size_t g_facesReadSnapshotBytes = 0;
++static uint32_t g_facesReadSnapshotGen = 0;
++
++static bool prepareFacesReadSnapshot(String& error) {
++    const uint32_t generation = savedFacesGeneration();
++    if (g_facesReadSnapshot && g_facesReadSnapshotGen == generation)
++        return true;
++    // An old generation cannot serve any new request; free before allocating
++    // to keep peak snapshot memory independent of how many clients reconnect.
++    free(g_facesReadSnapshot);
++    g_facesReadSnapshot = nullptr;
++    g_facesReadSnapshotBytes = 0;
++    char* fileBytes = nullptr;
++    size_t fileSize = 0;
++    if (!readBufferFromFileLocked(SAVED_FACES_PATH, fileBytes, fileSize)) {
++        error = "saved faces file unavailable";
++        return false;
++    }
++    PsramJsonDocument doc(savedFacesJsonCapacityFor(fileSize) + 16384);
++    const auto parsed = deserializeJson(doc, static_cast<const char*>(fileBytes), fileSize,
++                                       DeserializationOption::NestingLimit(32));
++    free(fileBytes);
++    if (parsed || !expandSavedFacesDocument(doc.as<JsonVariant>(), error) || doc.overflowed()) {
++        if (error.isEmpty()) error = "failed to expand saved faces";
++        return false;
++    }
++    const size_t bytes = measureJson(doc);
++    if (bytes > MAX_FACES_DOCUMENT_BYTES) {
++        error = "expanded saved faces exceed size limit";
++        return false;
++    }
++    // Bulk data must not consume the internal heap reserved for radio/RMT.
++    char* snapshot = static_cast<char*>(heap_caps_malloc(bytes + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
++    if (!snapshot) {
++        error = "insufficient PSRAM for saved faces snapshot";
++        return false;
++    }
++    if (serializeJson(doc, snapshot, bytes + 1) != bytes) {
++        free(snapshot);
++        error = "incomplete saved faces snapshot";
++        return false;
++    }
++    g_facesReadSnapshot = snapshot;
++    g_facesReadSnapshotBytes = bytes;
++    g_facesReadSnapshotGen = generation;
++    return true;
++}
++
++// Legacy payload remains [gen:4 LE][expanded file bytes]. A write between
++// pages returns 409; all clients share the same stable generation snapshot.
+ static void handleGetFaces(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16_t len) {
+     uint32_t offset = 0;
+     bool haveGen = false;
+     uint32_t reqGen = 0;
++    bool ifUnchanged = false;
++    String requestBootId;
+     if (len > 0) {
+-        StaticJsonDocument<128> d;
+-        if (!deserializeJson(d, payload, len)) {
+-            offset = d["offset"] | 0;
+-            if (!d["gen"].isNull()) {
+-                haveGen = true;
+-                reqGen = d["gen"] | 0;
+-            }
++        StaticJsonDocument<384> d;
++        if (deserializeJson(d, payload, len) ||
++            (!d["offset"].isNull() && !d["offset"].is<uint32_t>()) ||
++            (!d["gen"].isNull() && !d["gen"].is<uint32_t>())) {
++            sendErrorReply(c, seq, 400, "invalid faces read cursor");
++            return;
+         }
++        offset = d["offset"] | 0U;
++        haveGen = !d["gen"].isNull();
++        reqGen = d["gen"] | 0U;
++        ifUnchanged = d["ifUnchanged"] | false;
++        requestBootId = d["bootId"] | "";
+     }
+     if (!runtimeFsMounted()) {
+         sendErrorReply(c, seq, 503, "LittleFS is not mounted");
+         return;
+     }
+-    if (!existsFs(SAVED_FACES_PATH)) {
+-        sendErrorReply(c, seq, 404, "saved_faces.json not found");
+-        return;
+-    }
+-    uint32_t curGen = savedFacesGeneration();
++    const uint32_t curGen = savedFacesGeneration();
+     if (haveGen && reqGen != curGen) {
+         sendErrorReply(c, seq, 409, "saved_faces.json changed mid-transfer");
+         return;
+     }
+-    File f = openFs(SAVED_FACES_PATH, "r");
+-    if (!f) {
+-        sendErrorReply(c, seq, 500, "failed to open saved_faces.json");
++    if (ifUnchanged && offset == 0 && haveGen && requestBootId == boardBootId()) {
++        const uint8_t unchanged[4] = {static_cast<uint8_t>(curGen), static_cast<uint8_t>(curGen >> 8),
++                                      static_cast<uint8_t>(curGen >> 16), static_cast<uint8_t>(curGen >> 24)};
++        sendFrame(c, static_cast<uint8_t>(msg::GET_FACES | 0x80), seq, 0, unchanged, sizeof(unchanged));
+         return;
+     }
+-    size_t total = 0;
+-    withStorageLock([&]() { total = f.size(); });
+-    if (offset > total)
+-        offset = (uint32_t)total;
++    String error;
++    if (!prepareFacesReadSnapshot(error)) {
++        sendErrorReply(c, seq, 503, error);
++        return;
++    }
++    const size_t total = g_facesReadSnapshotBytes;
++    if (offset > total) offset = static_cast<uint32_t>(total);
+     uint16_t chunkMax = c.transport->preferredChunkBytes(ClientId{static_cast<uint8_t>(&c - g_clients)});
+-    if (chunkMax == 0 || chunkMax > MAX_PAYLOAD_BYTES)
+-        chunkMax = 2048;
+-    if (chunkMax < 5)
+-        chunkMax = 5; // must fit the 4-byte gen prefix plus at least 1 data byte
++    if (chunkMax == 0 || chunkMax > MAX_PAYLOAD_BYTES) chunkMax = 2048;
++    if (chunkMax < 5) chunkMax = 5;
+     static uint8_t buf[MAX_PAYLOAD_BYTES];
+-    buf[0] = (uint8_t)(curGen & 0xFF);
+-    buf[1] = (uint8_t)((curGen >> 8) & 0xFF);
+-    buf[2] = (uint8_t)((curGen >> 16) & 0xFF);
+-    buf[3] = (uint8_t)((curGen >> 24) & 0xFF);
+-    size_t want = total - offset;
+-    size_t dataCap = (size_t)chunkMax - 4;
+-    if (want > dataCap)
+-        want = dataCap;
+-    size_t n = 0;
+-    withStorageLock([&]() {
+-        f.seek(offset);
+-        n = f.read(buf + 4, want);
+-        f.close();
+-    });
+-    bool more = (offset + n) < total;
+-    sendFrame(c, static_cast<uint8_t>(msg::GET_FACES | 0x80), seq, more ? FLAG_MORE : 0, buf, (uint16_t)(n + 4));
++    buf[0] = static_cast<uint8_t>(curGen);
++    buf[1] = static_cast<uint8_t>(curGen >> 8);
++    buf[2] = static_cast<uint8_t>(curGen >> 16);
++    buf[3] = static_cast<uint8_t>(curGen >> 24);
++    size_t n = total - offset;
++    const size_t cap = static_cast<size_t>(chunkMax) - 4;
++    if (n > cap) n = cap;
++    memcpy(buf + 4, g_facesReadSnapshot + offset, n);
++    sendFrame(c, static_cast<uint8_t>(msg::GET_FACES | 0x80), seq,
++              offset + n < total ? FLAG_MORE : 0, buf, static_cast<uint16_t>(n + 4));
+ }
+ 
+ // --- Top-level dispatch ----------------------------------------------------------------
+diff --git a/esp32s3_firmware/src/storage.cpp b/esp32s3_firmware/src/storage.cpp
+index bab494b..051f975 100644
+--- a/esp32s3_firmware/src/storage.cpp
++++ b/esp32s3_firmware/src/storage.cpp
+@@ -6,7 +6,10 @@
+ #include "faces.h"
+ #include "sync.h"
+ #include "psram_json.h"
++#include "expression_parts.h"
+ #include <algorithm>
++#include <new>
++#include <utility>
+ #include <LittleFS.h>
+ 
+ bool mountFilesystem() {
+@@ -24,12 +27,41 @@ static bool ensureResourcesDirectory() {
+     return ok;
+ }
+ 
+-// Optimization (O6): these helpers used to cycle the Storage lock (which takes TWO
+-// mutexes: Storage + HardwareBus) up to three times per call for exists/open/IO. The
+-// I/O phase was always a single hold, so consolidating exists+open into that same hold
+-// does not lengthen the longest lock window — it just removes two take/give pairs per
+-// call and the exists->open TOCTOU gap. Behavior (return values, atomic rename) is
+-// unchanged.
++namespace {
++constexpr size_t STORAGE_IO_CHUNK_BYTES = 2048;
++
++// Filesystem consumers run serially in setup/Core 0's dispatcher. Retain the
++// handle across chunks, but release Storage (and its HardwareBus lock) so the
++// renderer can transmit between flash payload operations. Every filesystem
++// operation, including the final flush/rename, still owns both locks.
++bool writeBytesToFileAtomic(const char* path, const uint8_t* bytes, size_t size) {
++    const String tempPath = String(path) + ".tmp";
++    File file;
++    withStorageLock([&]() {
++        LittleFS.remove(tempPath);
++        file = LittleFS.open(tempPath, "w");
++    });
++    if (!file) return false;
++    size_t accepted = 0;
++    while (accepted < size) {
++        const size_t chunk = std::min(STORAGE_IO_CHUNK_BYTES, size - accepted);
++        size_t written = 0;
++        withStorageLock([&]() { written = file.write(bytes + accepted, chunk); });
++        accepted += written;
++        if (written != chunk) break;
++        if (accepted < size) delay(1);
++    }
++    bool committed = false;
++    withStorageLock([&]() {
++        file.flush();
++        file.close();
++        committed = accepted == size && LittleFS.rename(tempPath, path);
++        if (!committed) LittleFS.remove(tempPath);
++    });
++    return committed;
++}
++} // namespace
++
+ bool readStringFromFileLocked(const char* path, String& outContent) {
+     bool ok = false;
+     withStorageLock([&]() {
+@@ -46,24 +78,7 @@ bool readStringFromFileLocked(const char* path, String& outContent) {
+ }
+ 
+ bool writeStringToFileLocked(const char* path, const String& content) {
+-    const String tempPath = String(path) + ".tmp";
+-    bool renamed = false;
+-    withStorageLock([&]() {
+-        LittleFS.remove(tempPath);
+-        File file = LittleFS.open(tempPath, "w");
+-        if (!file)
+-            return;
+-        const size_t written = file.print(content);
+-        file.flush();
+-        file.close();
+-        // File::print() may succeed only partially (for example when LittleFS
+-        // runs out of space). Never replace the last good file unless every
+-        // serialized byte reached the temporary file.
+-        renamed = (written == content.length()) && LittleFS.rename(tempPath, path);
+-        if (!renamed)
+-            LittleFS.remove(tempPath);
+-    });
+-    return renamed;
++    return writeBytesToFileAtomic(path, reinterpret_cast<const uint8_t*>(content.c_str()), content.length());
+ }
+ 
+ namespace {
+@@ -90,31 +105,35 @@ void serviceRuntimeSettingsSave() {
+ bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize) {
+     outBuf = nullptr;
+     outSize = 0;
++    File file;
+     withStorageLock([&]() {
+-        if (!LittleFS.exists(path))
+-            return;
+-        File file = LittleFS.open(path, "r");
+-        if (!file)
+-            return;
+-        outSize = file.size();
+-        outBuf = static_cast<char*>(heap_caps_malloc(outSize + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+-        if (!outBuf)
+-            outBuf = static_cast<char*>(malloc(outSize + 1));
+-        if (outBuf) {
+-            size_t got = file.readBytes(outBuf, outSize);
+-            if (got != outSize) {
+-                free(outBuf);
+-                outBuf = nullptr;
+-                outSize = 0;
+-            } else {
+-                outBuf[outSize] = '\0';
+-            }
+-        }
+-        file.close();
++        file = LittleFS.open(path, "r");
++        if (file) outSize = file.size();
+     });
+-    if (!outBuf)
++    if (!file) return false;
++    // Memory allocation does not need to keep the hardware bus unavailable.
++    SpiRamAllocator allocator;
++    outBuf = static_cast<char*>(allocator.allocate(outSize + 1));
++    size_t got = 0;
++    if (outBuf) {
++        while (got < outSize) {
++            const size_t chunk = std::min(STORAGE_IO_CHUNK_BYTES, outSize - got);
++            size_t read = 0;
++            withStorageLock([&]() { read = file.readBytes(outBuf + got, chunk); });
++            got += read;
++            if (read != chunk) break;
++            if (got < outSize) delay(1);
++        }
++    }
++    withStorageLock([&]() { file.close(); });
++    if (!outBuf || got != outSize) {
++        allocator.deallocate(outBuf);
++        outBuf = nullptr;
+         outSize = 0;
+-    return outBuf != nullptr;
++        return false;
++    }
++    outBuf[outSize] = '\0';
++    return true;
+ }
+ 
+ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written, String& error) {
+@@ -123,18 +142,26 @@ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written
+         error = "LittleFS is not mounted";
+         return false;
+     }
+-    String serialized;
+     const size_t expected = measureJson(document);
+-    const size_t serializedBytes = serializeJson(document, serialized);
+-    if (serializedBytes != expected || serialized.length() != expected) {
++    SpiRamAllocator allocator;
++    char* serialized = static_cast<char*>(allocator.allocate(expected + 1));
++    if (!serialized) {
++        error = "failed to allocate JSON serialization buffer";
++        return false;
++    }
++    const size_t serializedBytes = serializeJson(document, serialized, expected + 1);
++    if (serializedBytes != expected) {
++        allocator.deallocate(serialized);
+         error = "failed to serialize JSON document";
+         return false;
+     }
+-    if (!writeStringToFileLocked(path, serialized)) {
++    const bool committed = writeBytesToFileAtomic(path, reinterpret_cast<const uint8_t*>(serialized), expected);
++    allocator.deallocate(serialized);
++    if (!committed) {
+         error = String("failed to write/commit file: ") + path;
+         return false;
+     }
+-    written = serialized.length();
++    written = expected;
+     return true;
+ }
+ 
+@@ -240,6 +267,105 @@ static bool readPackedFrameBytes(JsonObject face, uint8_t* out, String& error) {
+     return validatePackedFrame(out, error);
+ }
+ 
++static bool composeSavedFaceParts(JsonObject face, uint8_t* out, bool allowUnversioned, String& error) {
++    static_assert(FRAME_BYTES == expression_parts::FRAME_SIZE, "parts catalog frame size mismatch");
++    const bool unversioned = face["partsCatalog"].isNull() && face["partsVersion"].isNull();
++    if (!(allowUnversioned && unversioned) &&
++        (strcmp(face["partsCatalog"] | "", expression_parts::CATALOG) != 0 ||
++         !face["partsVersion"].is<uint16_t>() ||
++         face["partsVersion"].as<uint16_t>() != expression_parts::VERSION)) {
++        error = "unsupported parts catalog/version";
++        return false;
++    }
++    JsonObject call = face["call"].as<JsonObject>();
++    const char* fields[4] = {"leye", "reye", "mouth", "cheek"};
++    uint16_t ids[4];
++    for (uint8_t i = 0; i < 4; ++i) {
++        JsonVariant value = call[fields[i]];
++        if (value.is<const char*>()) {
++            if (!expression_parts::parseId(value.as<const char*>(), ids[i])) {
++                error = String("invalid part ID: ") + fields[i];
++                return false;
++            }
++        } else if (value.is<uint16_t>()) {
++            ids[i] = value.as<uint16_t>();
++        } else {
++            error = String("missing or invalid part ID: ") + fields[i];
++            return false;
++        }
++    }
++    if (!expression_parts::compose(ids, out)) {
++        error = "unknown part ID or incorrect part group";
++        return false;
++    }
++    return true;
++}
++
++bool materializeSavedFace(JsonObject face, uint8_t* out, String& error) {
++    if (!out) {
++        error = "frame output buffer is null";
++        return false;
++    }
++    const char* type = face["type"] | "";
++    if (strcmp(type, "parts") == 0 && face["frameBytes"].isNull())
++        return composeSavedFaceParts(face, out, false, error);
++    if (strcmp(type, "parts") != 0 && strcmp(type, "custom") != 0 && strcmp(type, "default") != 0) {
++        error = "face.type must be default, custom, or parts";
++        return false;
++    }
++    // Old full-frame parts documents may carry stale/unknown metadata. Never
++    // change their visible pixels based solely on that metadata.
++    return readPackedFrameBytes(face, out, error);
++}
++
++bool canonicalizeSavedFaces(JsonVariant document, String& error) {
++    if (!validateSavedFaces(document, error)) return false;
++    for (JsonObject face : document["faces"].as<JsonArray>()) {
++        if (strcmp(face["type"] | "", "parts") != 0) continue;
++        if (face["frameBytes"].isNull()) continue;
++        uint8_t bitmap[FRAME_BYTES], parts[FRAME_BYTES];
++        String partsError;
++        if (!readPackedFrameBytes(face, bitmap, error)) return false;
++        if (composeSavedFaceParts(face, parts, true, partsError) && memcmp(parts, bitmap, FRAME_BYTES) == 0) {
++            // Allocate any missing metadata before removing the authoritative
++            // bitmap so JSON pool exhaustion also leaves an intact record.
++            if (!face["partsCatalog"].set(expression_parts::CATALOG) ||
++                !face["partsVersion"].set(expression_parts::VERSION)) {
++                error = "insufficient JSON capacity for parts metadata";
++                return false;
++            }
++            face.remove("frameBytes");
++        } else {
++            face["type"] = "custom";
++            face.remove("call");
++            face.remove("partsCatalog");
++            face.remove("partsVersion");
++        }
++    }
++    return validateSavedFaces(document, error);
++}
++
++bool expandSavedFacesDocument(JsonVariant document, String& error) {
++    if (!validateSavedFaces(document, error)) return false;
++    for (JsonObject face : document["faces"].as<JsonArray>()) {
++        if (!face["frameBytes"].isNull()) continue;
++        uint8_t frame[FRAME_BYTES];
++        if (!materializeSavedFace(face, frame, error)) return false;
++        JsonArray bytes = face.createNestedArray("frameBytes");
++        if (bytes.isNull()) {
++            error = "insufficient JSON capacity for expanded frameBytes";
++            return false;
++        }
++        for (uint8_t byte : frame) {
++            if (!bytes.add(byte)) {
++                error = "insufficient JSON capacity for expanded frameBytes";
++                return false;
++            }
++        }
++    }
++    return true;
++}
++
+ bool validateSavedFaces(JsonVariant document, String& error) {
+     const char* category = document["category"] | "";
+     if (strcmp(category, "unified_saved_faces") != 0) {
+@@ -260,6 +386,7 @@ bool validateSavedFaces(JsonVariant document, String& error) {
+     const char* seenIds[MAX_AUTO_FACES] = {};
+     uint16_t seenCount = 0;
+     uint8_t frame[FRAME_BYTES];
++    size_t expandedBytes = measureJson(document);
+     for (JsonObject face : faces) {
+         const char* type = face["type"] | "";
+         const char* id = face["id"] | "";
+@@ -285,15 +412,26 @@ bool validateSavedFaces(JsonVariant document, String& error) {
+                 return false;
+             }
+         }
+-        if (!readPackedFrameBytes(face, frame, error)) {
++        if (!materializeSavedFace(face, frame, error)) {
+             error = String("invalid face packed frame: ") + error;
+             return false;
+         }
++        if (face["frameBytes"].isNull()) {
++            // A comma plus "frameBytes":[...]. Budget the actual decimal
++            // projection as well as canonical disk bytes before any commit.
++            expandedBytes += strlen(",\"frameBytes\":[]") + FRAME_BYTES - 1;
++            for (uint8_t byte : frame)
++                expandedBytes += byte >= 100 ? 3 : (byte >= 10 ? 2 : 1);
++        }
+     }
+     if (defaultCount == 0) {
+         error = "saved_faces.json must keep at least one type:\"default\" face";
+         return false;
+     }
++    if (expandedBytes > MAX_FACES_DOCUMENT_BYTES) {
++        error = "expanded saved_faces.json exceeds firmware size limit";
++        return false;
++    }
+     return true;
+ }
+ 
+@@ -304,11 +442,124 @@ static uint32_t g_savedFacesGeneration = 0;
+ 
+ uint32_t savedFacesGeneration() { return g_savedFacesGeneration; }
+ 
++namespace {
++// Only Core 0 publishes this table. Core 1 renders the separately queued packed
++// frame, so exchanging these owning strings requires no cross-core allocation.
++class PreparedSavedFaces {
++public:
++    ~PreparedSavedFaces() {
++        for (uint16_t i = 0; i < capacity_; ++i) faces_[i].~RuntimeFace();
++        allocator_.deallocate(faces_);
++    }
++
++    bool prepare(JsonVariant document, bool skipInvalid, String& error) {
++        JsonArray source = document["faces"].as<JsonArray>();
++        if (source.isNull() || source.size() > MAX_AUTO_FACES) {
++            error = "missing faces array or too many faces";
++            return false;
++        }
++        capacity_ = static_cast<uint16_t>(source.size());
++        if (!capacity_) {
++            error = "no usable saved faces";
++            return false;
++        }
++        faces_ = static_cast<RuntimeFace*>(allocator_.allocate(sizeof(RuntimeFace) * capacity_));
++        if (!faces_) {
++            capacity_ = 0;
++            error = "failed to allocate prepared saved-face table";
++            return false;
++        }
++        for (uint16_t i = 0; i < capacity_; ++i) new (&faces_[i]) RuntimeFace();
++        const char* startupId = document["startupDefaultId"] | "";
++        uint16_t jsonIndex = 0;
++        for (JsonVariant entry : source) {
++            JsonObject face = entry.as<JsonObject>();
++            uint8_t packed[FRAME_BYTES];
++            String faceError;
++            const char* id = face["id"] | "";
++            bool duplicate = false;
++            for (uint16_t i = 0; i < count_; ++i) duplicate |= faces_[i].id == id;
++            const bool metadataValid = id[0] && !duplicate && face["order"].is<int32_t>() &&
++                face["order"].as<int32_t>() >= 1 &&
++                !(strcmp(face["type"] | "", "default") == 0 && defaultFaceIdNumberIsInvalid(id));
++            if (!metadataValid || !materializeSavedFace(face, packed, faceError)) {
++                if (faceError.isEmpty()) faceError = "invalid face identity/order";
++                if (!skipInvalid) { error = faceError; return false; }
++                Serial.printf("Skipping invalid saved face %u: %s\n", jsonIndex, faceError.c_str());
++                ++jsonIndex;
++                continue;
++            }
++            RuntimeFace& runtime = faces_[count_];
++            const char* name = face["name"] | id;
++            runtime.id = id;
++            runtime.name = name;
++            // Arduino String reports allocation failure by yielding an empty
++            // or unchanged string. Detect that while the old table is intact.
++            if (runtime.id.length() != strlen(id) || runtime.name.length() != strlen(name)) {
++                error = "failed to allocate saved-face identity strings";
++                return false;
++            }
++            memcpy(runtime.frameBits, packed, FRAME_BYTES);
++            runtime.order = face["order"].as<int32_t>();
++            runtime.jsonIndex = jsonIndex++;
++            runtime.isDefault = strcmp(face["type"] | "", "default") == 0;
++            runtime.isStartupDefault = face["is_startup_default"].as<bool>() ||
++                (startupId[0] && strcmp(startupId, id) == 0);
++            ++count_;
++        }
++        if (!count_) {
++            error = "no usable saved faces";
++            return false;
++        }
++        std::sort(faces_, faces_ + count_, [](const RuntimeFace& a, const RuntimeFace& b) {
++            if (a.order != b.order) return a.order < b.order;
++            return a.jsonIndex < b.jsonIndex;
++        });
++        return true;
++    }
++
++    void publish(JsonVariant document, bool applyStartupFace) {
++        const char* startupId = document["startupDefaultId"] | "";
++        const uint16_t previousIndex = runtimeState().autoFaceIndex;
++        const String* previousId = previousIndex < runtimeAutoFaceCount()
++            ? &runtimeAutoFaces()[previousIndex].id : nullptr;
++        int selectedIndex = -1;
++        int firstDefault = -1;
++        for (uint16_t i = 0; i < count_; ++i) {
++            if (faces_[i].isDefault && firstDefault < 0) firstDefault = i;
++            if (selectedIndex < 0 &&
++                ((!applyStartupFace && previousId && *previousId == faces_[i].id) ||
++                 (applyStartupFace && ((startupId[0] && faces_[i].id == startupId) || faces_[i].isStartupDefault))))
++                selectedIndex = i;
++        }
++        if (selectedIndex < 0)
++            selectedIndex = !applyStartupFace && previousIndex < count_ ? previousIndex :
++                (firstDefault >= 0 ? firstDefault : 0);
++        // String moves exchange owned buffers; every potentially failing
++        // allocation happened before the filesystem rename.
++        for (uint16_t i = 0; i < count_; ++i) std::swap(runtimeAutoFaces()[i], faces_[i]);
++        for (uint16_t i = count_; i < runtimeAutoFaceCount(); ++i) runtimeAutoFaces()[i] = RuntimeFace();
++        runtimeAutoFaceCount() = count_;
++        runtimeState().autoFaceIndex = static_cast<uint16_t>(selectedIndex);
++        touchRuntimeState();
++    }
++
++private:
++    SpiRamAllocator allocator_;
++    RuntimeFace* faces_ = nullptr;
++    uint16_t capacity_ = 0;
++    uint16_t count_ = 0;
++};
++} // namespace
++
+ size_t writeSavedFaces(JsonVariant document, String& error) {
+     if (!runtimeFsMounted()) {
+         error = "LittleFS is not mounted";
+         return 0;
+     }
++    if (!canonicalizeSavedFaces(document, error)) return 0;
++    PreparedSavedFaces prepared;
++    if (!prepared.prepare(document, false, error)) return 0;
+     if (!ensureResourcesDirectory()) {
+         error = "failed to ensure /resources for saved_faces.json";
+         return 0;
+@@ -318,8 +569,8 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
+         return 0;
+     }
+     size_t written = 0;
+-    if (!writeJsonFileAtomic(SAVED_FACES_PATH, document, written, error))
+-        return 0;
++    if (!writeJsonFileAtomic(SAVED_FACES_PATH, document, written, error)) return 0;
++    prepared.publish(document, false);
+     ++runtimeState().savedFacesWrites;
+     ++g_savedFacesGeneration;
+     touchRuntimeState();
+@@ -327,79 +578,28 @@ size_t writeSavedFaces(JsonVariant document, String& error) {
+ }
+ 
+ bool ensureSavedFacesLoaded() {
+-    if (runtimeAutoFaceCount() > 0)
+-        return true;
++    if (runtimeAutoFaceCount() > 0) return true;
+     return loadSavedFaces(false) && runtimeAutoFaceCount() > 0;
+ }
+ 
+ bool installSavedFacesDocument(JsonVariant document, bool applyStartupFace) {
+-    const String startupId = document["startupDefaultId"] | "";
+-    JsonArray faces = document["faces"].as<JsonArray>();
+-    String previousFaceId;
+-    const uint16_t previousFaceIndex = runtimeState().autoFaceIndex;
+-    if (runtimeAutoFaceCount() > 0 && runtimeState().autoFaceIndex < runtimeAutoFaceCount())
+-        previousFaceId = runtimeAutoFaces()[runtimeState().autoFaceIndex].id;
+-    runtimeAutoFaceCount() = 0;
+-    uint16_t jsonIndex = 0;
+-
+-    for (JsonObject face : faces) {
+-        if (runtimeAutoFaceCount() >= MAX_AUTO_FACES)
+-            break;
+-        uint8_t packed[FRAME_BYTES];
+-        String error;
+-        if (!readPackedFrameBytes(face, packed, error)) {
+-            ++jsonIndex;
+-            continue;
+-        }
+-        RuntimeFace& runtime = runtimeAutoFaces()[runtimeAutoFaceCount()++];
+-        runtime.id = String(face["id"] | "");
+-        runtime.name = String(face["name"] | runtime.id.c_str());
+-        memcpy(runtime.frameBits, packed, FRAME_BYTES);
+-        runtime.order = face["order"].is<int32_t>() ? face["order"].as<int32_t>() : static_cast<int32_t>(jsonIndex) + 1;
+-        runtime.jsonIndex = jsonIndex;
+-        runtime.isDefault = strcmp(face["type"] | "", "default") == 0;
+-        runtime.isStartupDefault = face["is_startup_default"].as<bool>() || (!startupId.isEmpty() && startupId == runtime.id);
+-        ++jsonIndex;
+-    }
+-
+-    if (runtimeAutoFaceCount() == 0)
++    PreparedSavedFaces prepared;
++    String error;
++    if (!prepared.prepare(document, true, error)) {
++        Serial.printf("Failed to prepare saved faces: %s\n", error.c_str());
+         return false;
+-    std::sort(runtimeAutoFaces(), runtimeAutoFaces() + runtimeAutoFaceCount(), [](const RuntimeFace& a, const RuntimeFace& b) {
+-        if (a.order != b.order)
+-            return a.order < b.order;
+-        return a.jsonIndex < b.jsonIndex;
+-    });
+-
+-    int selectedIndex = -1;
+-    int firstDefaultIndex = -1;
+-    for (uint16_t i = 0; i < runtimeAutoFaceCount(); ++i) {
+-        if (runtimeAutoFaces()[i].isDefault && firstDefaultIndex < 0)
+-            firstDefaultIndex = i;
+-        if (selectedIndex < 0) {
+-            if (!applyStartupFace && !previousFaceId.isEmpty() && previousFaceId == runtimeAutoFaces()[i].id)
+-                selectedIndex = i;
+-            else if (applyStartupFace && ((!startupId.isEmpty() && startupId == runtimeAutoFaces()[i].id) || runtimeAutoFaces()[i].isStartupDefault))
+-                selectedIndex = i;
+-        }
+     }
+-    if (selectedIndex < 0)
+-        selectedIndex = (!applyStartupFace && previousFaceIndex < runtimeAutoFaceCount()) ? previousFaceIndex : (firstDefaultIndex >= 0 ? firstDefaultIndex : 0);
+-    runtimeState().autoFaceIndex = static_cast<uint16_t>(selectedIndex);
+-    touchRuntimeState();
++    prepared.publish(document, applyStartupFace);
+     Serial.printf("Loaded %u saved faces for firmware auto mode\n", runtimeAutoFaceCount());
+-
+     if (applyStartupFace) {
+-        String error;
+         runtimeState().brightness = DEFAULT_BRIGHTNESS;
+         runtimeState().playback = isAutoMode() ? "auto_saved_face" : DEFAULT_PLAYBACK;
+-        if (isAutoMode())
+-            runtimeState().lastAutoSwitchMs = millis();
++        if (isAutoMode()) runtimeState().lastAutoSwitchMs = millis();
+         runtimeState().paused = false;
+         if (!applyPackedFrameQueued(runtimeAutoFaces()[runtimeState().autoFaceIndex].frameBits, STARTUP_FACE_REASON, error)) {
+             Serial.printf("startup packed frame failed: %s\n", error.c_str());
+             return false;
+         }
+-        Serial.printf("Loaded startup face index: %u\n", runtimeState().autoFaceIndex);
+     }
+     return true;
+ }
+@@ -413,8 +613,6 @@ bool loadSavedFaces(bool applyStartupFace) {
+     char* contentBuf = nullptr;
+     if (!readBufferFromFileLocked(SAVED_FACES_PATH, contentBuf, savedFacesSize)) {
+         Serial.println("No saved_faces.json or failed to read; LED output starts blank");
+-        runtimeAutoFaceCount() = 0;
+-        touchRuntimeState();
+         return false;
+     }
+ 
+@@ -426,8 +624,6 @@ bool loadSavedFaces(bool applyStartupFace) {
+     free(contentBuf);
+     if (err) {
+         Serial.printf("saved_faces.json parse failed: %s\n", err.c_str());
+-        runtimeAutoFaceCount() = 0;
+-        touchRuntimeState();
+         return false;
+     }
+ 
+diff --git a/esp32s3_firmware/src/storage.h b/esp32s3_firmware/src/storage.h
+index 029f2d5..2d7d8c1 100644
+--- a/esp32s3_firmware/src/storage.h
++++ b/esp32s3_firmware/src/storage.h
+@@ -4,6 +4,9 @@
+ 
+ bool mountFilesystem();
+ 
++// Call from setup/Core 0's serialized control path. Buffer reads and writes
++// release Storage/HardwareBus between <=2048-byte payload operations, yielding
++// between chunks; filesystem metadata operations retain the normal locks.
+ bool readStringFromFileLocked(const char* path, String& outContent);
+ bool writeStringToFileLocked(const char* path, const String& content);
+ bool readBufferFromFileLocked(const char* path, char*& outBuf, size_t& outSize);
+@@ -21,15 +24,24 @@ bool writeJsonFileAtomic(const char* path, JsonVariant document, size_t& written
+ 
+ bool loadSavedFaces(bool applyStartupFace);
+ 
+-// Copy a parsed saved-faces document into the runtime table. Strings and
+-// frame bytes are copied, so the JSON document may die afterward.
+-// applyStartupFace selects the startup face and queues its frame; false keeps
+-// the current id and does not push a frame. Sort, MAX_AUTO_FACES, and the
+-// clear-then-fill order match loadSavedFaces.
++// Stages the complete runtime table before publishing it. On startup, invalid
++// individual records are logged and skipped without rewriting the source file.
++// false preserves the displayed pixels and current id when it still exists.
+ bool installSavedFacesDocument(JsonVariant document, bool applyStartupFace);
+ 
++// Shared logical-frame decoder. Legacy parts+bitmap records retain their
++// authoritative bitmap; ID-only parts require the exact supported catalog.
++bool materializeSavedFace(JsonObject face, uint8_t* out, String& error);
++
++// Losslessly compact matching parts+bitmap records; stale metadata becomes
++// custom bitmap content. Both functions mutate only the supplied document.
++bool canonicalizeSavedFaces(JsonVariant document, String& error);
++bool expandSavedFacesDocument(JsonVariant document, String& error);
++
+ bool validateSavedFaces(JsonVariant document, String& error);
+ 
++// Validate, canonicalize, prebuild the runtime table, atomically commit, and
++// publish without further allocation. A successful save never applies a frame.
+ size_t writeSavedFaces(JsonVariant document, String& error);
+ 
+ // Monotonic counter incremented on every successful writeSavedFaces() call.
+diff --git a/esp32s3_firmware/test/host/stress_findings_test.py b/esp32s3_firmware/test/host/stress_findings_test.py
+index 63df495..d221fc8 100644
+--- a/esp32s3_firmware/test/host/stress_findings_test.py
++++ b/esp32s3_firmware/test/host/stress_findings_test.py
+@@ -99,7 +99,7 @@ faces = (FW / "src/faces.cpp").read_text()
+ storage = (FW / "src/storage.cpp").read_text()
+ config = (FW / "src/config.h").read_text()
+ assert "scheduleRuntimeSettingsSave();" in faces
+-assert "written == content.length()" in storage
++# Full-write rollback is behaviorally covered by saved_faces_storage_test.py.
+ assert "serializedBytes != expected" in storage
+ assert "PACKED_FRAME_QUEUE_DEPTH = 1" in config
+ print("PASS: deferred mode persistence, full-write commit, serialization, and latest-only queue contract")
+diff --git a/ios/Packages/RinaCore/Sources/RinaCore/FaceDocument.swift b/ios/Packages/RinaCore/Sources/RinaCore/FaceDocument.swift
+index 7fa318b..e3773c6 100644
+--- a/ios/Packages/RinaCore/Sources/RinaCore/FaceDocument.swift
++++ b/ios/Packages/RinaCore/Sources/RinaCore/FaceDocument.swift
+@@ -36,6 +36,8 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
+     public var savedAt: String?
+     public var updatedAt: String?
+     public var call: CallIds?
++    public var partsCatalog: String?
++    public var partsVersion: Int?
+ 
+     enum CodingKeys: String, CodingKey {
+         case id, name, type, frameBytes, frameHex, order, editable, deletable, locked
+@@ -43,7 +45,7 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
+         case sourceFile
+         case savedAt
+         case updatedAt
+-        case call
++        case call, partsCatalog, partsVersion
+     }
+ 
+     /// Sentinel written by the lenient decoder when `order` is missing so
+@@ -53,7 +55,8 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
+     public init(id: String, name: String, type: Kind, frameBytes: [Int], order: Int,
+                 editable: Bool? = nil, deletable: Bool? = nil, locked: Bool? = nil,
+                 isStartupDefault: Bool? = nil, sourceFile: String? = nil, savedAt: String? = nil,
+-                updatedAt: String? = nil, call: CallIds? = nil) {
++                updatedAt: String? = nil, call: CallIds? = nil,
++                partsCatalog: String? = nil, partsVersion: Int? = nil) {
+         self.id = id
+         self.name = name
+         self.type = type
+@@ -67,6 +70,8 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
+         self.savedAt = savedAt
+         self.updatedAt = updatedAt
+         self.call = call
++        self.partsCatalog = partsCatalog
++        self.partsVersion = partsVersion
+     }
+ 
+     /// Lenient decoding so one malformed face doesn't fail the whole document:
+@@ -104,6 +109,8 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
+         savedAt = try? container.decode(String.self, forKey: .savedAt)
+         updatedAt = try? container.decode(String.self, forKey: .updatedAt)
+         call = try? container.decode(CallIds.self, forKey: .call)
++        partsCatalog = try? container.decode(String.self, forKey: .partsCatalog)
++        partsVersion = try? container.decode(Int.self, forKey: .partsVersion)
+     }
+ 
+     private static func bytes(fromHex hex: String) -> [Int]? {
+@@ -147,6 +154,8 @@ public struct SavedFace: Codable, Equatable, Sendable, Identifiable {
+         try container.encodeIfPresent(savedAt, forKey: .savedAt)
+         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
+         try container.encodeIfPresent(call, forKey: .call)
++        try container.encodeIfPresent(partsCatalog, forKey: .partsCatalog)
++        try container.encodeIfPresent(partsVersion, forKey: .partsVersion)
+     }
+ }
+ 
+diff --git a/ios/Packages/RinaCore/Sources/RinaCore/RinaCommand.swift b/ios/Packages/RinaCore/Sources/RinaCore/RinaCommand.swift
+index 2b4928a..e2ffd4b 100644
+--- a/ios/Packages/RinaCore/Sources/RinaCore/RinaCommand.swift
++++ b/ios/Packages/RinaCore/Sources/RinaCore/RinaCommand.swift
+@@ -299,7 +299,7 @@ public struct FaceExpectation: Sendable, Equatable, Codable {
+ /// `face_upsert`'s `{"face": {...}}` payload (§7.2): create when `id` is nil
+ /// (server assigns the id, appends with `order = max+1`), update in place
+ /// when `id` matches an existing non-default face.
+-public struct FaceUpsertPayload: Sendable, Equatable {
++public struct FaceUpsertPayload: Sendable, Equatable, Codable {
+     public var id: String?
+     public var name: String
+     /// `"custom"` or `"parts"` (`SavedFace.Kind.rawValue`); defaults cannot be upserted.
+@@ -310,6 +310,9 @@ public struct FaceUpsertPayload: Sendable, Equatable {
+     /// Optimistic-lock check against the stored face's content as it was when
+     /// this edit began; the board rejects with 409 if it no longer matches.
+     public var expect: FaceExpectation?
++    public var partsCatalog: String?
++    public var partsVersion: Int?
++    public var partsReferenceOnly: Bool = false
+ 
+     public init(
+         id: String? = nil, name: String, type: String, frameHex: String, call: SavedFace.CallIds? = nil,
+@@ -325,6 +328,9 @@ public struct FaceUpsertPayload: Sendable, Equatable {
+ 
+     var jsonObject: [String: Any] {
+         var obj: [String: Any] = ["name": name, "type": type, "frameHex": frameHex]
++        if partsReferenceOnly { obj.removeValue(forKey: "frameHex") }
++        if let partsCatalog { obj["partsCatalog"] = partsCatalog }
++        if let partsVersion { obj["partsVersion"] = partsVersion }
+         if let id { obj["id"] = id }
+         if let call {
+             var callObj: [String: Any] = [:]
+diff --git a/ios/Packages/RinaCore/Tests/RinaCoreTests/RinaCommandTests.swift b/ios/Packages/RinaCore/Tests/RinaCoreTests/RinaCommandTests.swift
+index 0469965..350ec49 100644
+--- a/ios/Packages/RinaCore/Tests/RinaCoreTests/RinaCommandTests.swift
++++ b/ios/Packages/RinaCore/Tests/RinaCoreTests/RinaCommandTests.swift
+@@ -108,6 +108,29 @@ final class RinaCommandTests: XCTestCase {
+         XCTAssertEqual(face?["frameHex"] as? String, String(repeating: "00", count: PackedFrame.byteCount))
+     }
+ 
++    func testPartsReferenceOmitsBitmapOnlyWhenExplicitlyEnabled() throws {
++        var payload = FaceUpsertPayload(id: "user_stable", name: "Parts", type: "parts",
++                                         frameHex: PackedFrame().hex94,
++                                         call: .init(leye: "101", reye: "201", mouth: "301", cheek: "400"))
++        payload.partsCatalog = "rina_expression_parts_370_runtime_v4"
++        payload.partsVersion = 4
++        func faceObject() throws -> [String: Any] {
++            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: RinaCommand.faceUpsert(face: payload).encode()) as? [String: Any])
++            return try XCTUnwrap(object["face"] as? [String: Any])
++        }
++        XCTAssertEqual(try faceObject()["frameHex"] as? String, PackedFrame().hex94)
++        payload.partsReferenceOnly = true
++        let reference = try faceObject()
++        XCTAssertNil(reference["frameHex"])
++        XCTAssertEqual(reference["partsCatalog"] as? String, "rina_expression_parts_370_runtime_v4")
++        XCTAssertEqual(reference["partsVersion"] as? Int, 4)
++        XCTAssertEqual(reference["id"] as? String, "user_stable")
++        // The pending operation retains the expanded snapshot for readback.
++        let restored = try JSONDecoder().decode(FaceUpsertPayload.self, from: JSONEncoder().encode(payload))
++        XCTAssertEqual(restored, payload)
++        XCTAssertEqual(restored.frameHex, PackedFrame().hex94)
++    }
++
+     func testFaceUpsertWithoutIdOmitsIdField() throws {
+         let payload = FaceUpsertPayload(name: "新表情", type: "parts", frameHex: String(repeating: "00", count: PackedFrame.byteCount))
+         let data = try RinaCommand.faceUpsert(face: payload).encode()
+diff --git a/ios/RinaBoard.xcodeproj/project.pbxproj b/ios/RinaBoard.xcodeproj/project.pbxproj
+index be3a2a3..8295ed9 100644
+--- a/ios/RinaBoard.xcodeproj/project.pbxproj
++++ b/ios/RinaBoard.xcodeproj/project.pbxproj
+@@ -338,8 +338,14 @@
+ 			);
+ 			name = "Build Mac Wi-Fi Bridge";
+ 			outputPaths = (
+-				"$(DERIVED_FILE_DIR)/mac-wifi-bridge",
++				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns",
+ 				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle",
++				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents",
++				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents/MacOS",
++				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents/_CodeSignature",
++				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents/MacOS/RinaMacWiFiBridge",
++				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents/Info.plist",
++				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/PlugIns/RinaMacWiFiBridge.bundle/Contents/_CodeSignature/CodeResources",
+ 			);
+ 			runOnlyForDeploymentPostprocessing = 0;
+ 			shellPath = /bin/bash;
+diff --git a/ios/RinaBoard/App/RootTabView.swift b/ios/RinaBoard/App/RootTabView.swift
+index 650b24f..13125df 100644
+--- a/ios/RinaBoard/App/RootTabView.swift
++++ b/ios/RinaBoard/App/RootTabView.swift
+@@ -100,6 +100,7 @@ struct RootTabView: View {
+         ZStack {
+             if contentReady {
+                 tabs
++                .accessibilityIdentifier("app.content")
+                 .modifier(ControlCenterPresenter(isPresented: $showControlCenter,
+                                                  namespace: controlCenterNamespace))
+                 .tint(Color("AccentColor"))
+@@ -270,27 +271,27 @@ struct RootTabView: View {
+         TabView(selection: Bindable(router).selectedTab) {
+             ControlView()
+                 .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
+-                .tabItem { Label("表情显示", image: "TabRinaFace") }
++                .tabItem { Label("表情显示", image: "TabRinaFace").accessibilityIdentifier("tab.control") }
+                 .tag(AppTab.control)
+ 
+             ScrollTextView()
+                 .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
+-                .tabItem { Label("文字滚动", image: "TabScrollText") }
++                .tabItem { Label("文字滚动", image: "TabScrollText").accessibilityIdentifier("tab.text") }
+                 .tag(AppTab.text)
+ 
+             LipSyncView()
+                 .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
+-                .tabItem { Label("嘴形识别", systemImage: "waveform") }
++                .tabItem { Label("嘴形识别", systemImage: "waveform").accessibilityIdentifier("tab.lipSync") }
+                 .tag(AppTab.lipSync)
+ 
+             PerformanceTabView()
+                 .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
+-                .tabItem { Label("演出", systemImage: "music.note") }
++                .tabItem { Label("演出", systemImage: "music.note").accessibilityIdentifier("tab.presetLive") }
+                 .tag(AppTab.presetLive)
+ 
+             SettingsView()
+                 .modifier(ControlCenterMenuCard(stop: $controlCenterCardStop, namespace: controlCenterNamespace))
+-                .tabItem { Label("设定", image: "TabRinaSettings") }
++                .tabItem { Label("设定", image: "TabRinaSettings").accessibilityIdentifier("tab.settings") }
+                 .tag(AppTab.settings)
+         }
+         .environment(controlCenterColumnScroll)
+@@ -305,8 +306,7 @@ struct RootTabView: View {
+             ArkPixelInputFont.prewarm()
+         }.value
+         async let scrollFont: Void = textModel.prewarmFont()
+-        async let faces: Void = faceLibrary.loadLocalIfNeeded()
+-        _ = await (inputFont, scrollFont, faces)
++        _ = await (inputFont, scrollFont)
+         // Parses on the main actor, so it goes last: the tabs have mounted
+         // and the first-page waterfall is under way by now.
+         let mode = PerformanceTabMode.stored
+diff --git a/ios/RinaBoard/Features/Control/ControlView.swift b/ios/RinaBoard/Features/Control/ControlView.swift
+index 3c5e63e..509c3bf 100644
+--- a/ios/RinaBoard/Features/Control/ControlView.swift
++++ b/ios/RinaBoard/Features/Control/ControlView.swift
+@@ -8,6 +8,7 @@ import RinaCore
+ struct ControlView: View {
+     @Environment(\.scenePhase) private var scenePhase
+     @Environment(BoardConnection.self) private var connection
++    @Environment(BoardSessionStore.self) private var sessions
+     @Environment(ControlViewModel.self) private var model
+     @Environment(BoardControlCenterModel.self) private var controlCenter
+     @Environment(FaceLibraryModel.self) private var faceLibrary
+@@ -21,7 +22,7 @@ struct ControlView: View {
+     /// never scrolls the page — only the commands and parts below scroll
+     /// (§16).
+     @State private var isTouchingBoard = false
+-    @State private var isNamingSave = false
++    @State private var namingSave: FaceSaveNamingPresentation?
+     @State private var saveNameDraft = ""
+     @State private var isChoosingSaveTarget = false
+     /// Set by the save-target dialog; applied only when the naming sheet is
+@@ -31,19 +32,32 @@ struct ControlView: View {
+     /// The destination and identity are frozen the moment the naming sheet
+     /// opens (Control §11.3): a reconnect or a board switch while it is open
+     /// must not silently redirect an in-progress save.
+-    @State private var saveLocation: FaceLibraryLocation = .local
++    @State private var saveLocation: FaceLibraryLocation = .board
+     @State private var saveFrame = PackedFrame()
+     @State private var saveFaceID: String?
+     @State private var saveBoardSource: BoardFaceSaveSource?
++    @State private var multiSave = MultiBoardFaceSaveCoordinator()
++    @State private var pickingSaveBoards: FaceSaveTargetsPresentation?
++    @State private var selectedSaveBoards: [FrozenFaceSaveDestination] = []
++    @State private var continueNamingAfterTargets = false
++    @State private var saveMultiSnapshot: MultiBoardFaceSaveSnapshot?
++    @State private var saveResults: FaceSaveResultsPresentation?
++    @State private var preparedMultiSave = false
++    @State private var adoptedMultiOperationID: UUID?
++    @State private var adoptingMultiOperationID: UUID?
+ 
+     private var isConnected: Bool { connection.connectionState == .connected }
++    private var canSaveToBoard: Bool { !FrozenFaceSaveDestination.connected(in: sessions).isEmpty }
+     /// Names the save sheet's destination (DEF-05) so a title alone tells the
+     /// user where the face is going, reusing `FaceLibraryLocation`'s own
+     /// wording instead of inventing new terms for the same two places. Uses
+     /// the frozen `saveLocation`, not the live connection state, so the title
+     /// never disagrees with where the sheet is actually about to save.
+     private var saveDestinationTitle: String {
+-        String(format: NSLocalizedString("保存到%@", comment: "save alert title naming its destination"),
++        if !selectedSaveBoards.isEmpty {
++            return String(format: NSLocalizedString("保存到 %lld 个面板", comment: "multi-board save naming title"), Int64(selectedSaveBoards.count))
++        }
++        return String(format: NSLocalizedString("保存到%@", comment: "save alert title naming its destination"),
+                saveLocation.title)
+     }
+     private var boardColor: Color { controlCenter.draftColor }
+@@ -88,14 +102,29 @@ struct ControlView: View {
+             // No navigation bar, so the list's default top margin only pushes
+             // the board away from the status bar.
+             .contentMargins(.top, 0, for: .scrollContent)
+-            .sheet(isPresented: $isNamingSave) {
+-                FaceNameEditorSheet(title: saveDestinationTitle, initialName: saveNameDraft) { name in
+-                    guard model.draftFrame == saveFrame, model.editingFaceId == saveFaceID else {
++            .sheet(item: $namingSave, onDismiss: {
++                if preparedMultiSave {
++                    preparedMultiSave = false
++                    saveResults = FaceSaveResultsPresentation(startPrepared: true)
++                }
++            }) { save in
++                FaceNameEditorSheet(title: save.title, initialName: save.name) { name in
++                    guard model.draftFrame == save.frame, model.editingFaceId == save.faceID else {
+                         return NSLocalizedString("编辑内容已改变，请关闭后重新保存", comment: "face changed while naming")
+                     }
++                    if let snapshot = save.snapshot, !save.destinations.isEmpty {
++                        guard !model.hasPendingBoardSave else {
++                            return NSLocalizedString("请先连接原面板，核对上次单面板保存", comment: "single pending blocks multi save")
++                        }
++                        model.saveName = name
++                        guard await model.persistDraft() else { return model.draftStorageError }
++                        let prepared = await multiSave.prepare(name: name, snapshot: snapshot, destinations: save.destinations)
++                        preparedMultiSave = prepared
++                        return prepared ? nil : multiSave.errorMessage
++                    }
+                     let success = await model.saveEditedFace(
+-                        name: name, asNew: savesAsNew, to: saveLocation,
+-                        library: faceLibrary, connection: connection, expectedBoard: saveBoardSource
++                        name: name, asNew: save.asNew, to: .board,
++                        library: faceLibrary, connection: connection, expectedBoard: save.boardSource
+                     )
+                     return success ? nil : (faceLibrary.errorMessage
+                         ?? NSLocalizedString("保存失败，请重试", comment: "save face failed"))
+@@ -103,9 +132,46 @@ struct ControlView: View {
+             }
+             .sensoryFeedback(.impact(weight: .light), trigger: toggleCount) { _, _ in hapticsEnabled }
+             .sheet(isPresented: $isShowingSavedFaces) { savedFacesSheet }
++            .sheet(item: $pickingSaveBoards, onDismiss: {
++                if continueNamingAfterTargets {
++                    continueNamingAfterTargets = false
++                    finishNamingSetup(asNew: savesAsNew)
++                }
++            }) { picker in
++                FaceSaveTargetsSheet(destinations: picker.destinations, currentID: picker.currentID,
++                                     overwriteBoardID: picker.overwriteBoardID) { selected in
++                    selectedSaveBoards = selected
++                    continueNamingAfterTargets = true
++                }
++            }
++            .sheet(item: $saveResults) { results in
++                MultiBoardFaceSaveResultsSheet(coordinator: multiSave, startPrepared: results.startPrepared) {
++                    await adoptPrimaryMultiSaveResult()
++                }
++            }
+         }
+         .errorAlert(Bindable(model).errorMessage)
+         .onAppear { bootLoader.beginWaterfall(count: 3) }
++        .task {
++            await multiSave.restore()
++            await adoptPrimaryMultiSaveResult()
++        }
++        .onChange(of: isConnected) { _, connected in
++            if !connected {
++                isShowingSavedFaces = false
++                if selectedSaveBoards.isEmpty && pickingSaveBoards == nil {
++                    namingSave = nil
++                    isChoosingSaveTarget = false
++                }
++            }
++        }
++        .onChange(of: connection.connectionGeneration) { _, _ in
++            isShowingSavedFaces = false
++            if selectedSaveBoards.isEmpty && pickingSaveBoards == nil {
++                namingSave = nil
++                isChoosingSaveTarget = false
++            }
++        }
+         .task(id: isConnected && scenePhase == .active ? connection.connectionGeneration : nil) {
+             guard isConnected, scenePhase == .active else { return }
+             await model.runDisplayRefreshLoop(connection: connection)
+@@ -214,10 +280,10 @@ struct ControlView: View {
+                 }
+                 .disabled(!isConnected || model.isSending)
+ 
+-                Button {
+-                    isShowingSavedFaces = true
+-                } label: {
+-                    CommandChip("保存列表", systemImage: "list.bullet.rectangle")
++                if isConnected {
++                    Button { isShowingSavedFaces = true } label: {
++                        CommandChip("板上表情", systemImage: "list.bullet.rectangle")
++                    }
+                 }
+ 
+                 Button {
+@@ -225,6 +291,7 @@ struct ControlView: View {
+                 } label: {
+                     CommandChip("保存", systemImage: "square.and.arrow.down.fill")
+                 }
++                .disabled(!canSaveToBoard || faceLibrary.isSaving || multiSave.isRunning)
+                 .confirmationDialog("保存表情", isPresented: $isChoosingSaveTarget) {
+                     Button("覆盖原表情") { beginNaming(asNew: false) }
+                     Button("另存为新表情") { beginNaming(asNew: true) }
+@@ -233,6 +300,11 @@ struct ControlView: View {
+             }
+             .buttonStyle(.pill)
+             .pillButtonRow()
++            if multiSave.operation != nil {
++                Button(multiSave.allConfirmed ? "查看上次保存结果" : "继续上次保存", systemImage: "clock.arrow.circlepath") {
++                    saveResults = FaceSaveResultsPresentation(startPrepared: false)
++                }
++            }
+         }
+     }
+ 
+@@ -333,12 +405,23 @@ struct ControlView: View {
+         }
+     }
+ 
+-    /// Overwrite vs. save-as is decided here, after the tap: only offered
+-    /// when the edited face can actually be overwritten, and — when its
+-    /// origin is the board but the board is offline right now — overwrite is
+-    /// not possible at all (§11.3), so the choice is skipped entirely and the
+-    /// draft goes straight to naming as a new (local) face.
++    /// Existing editable board faces offer overwrite or a separate new copy.
+     private func beginSave() {
++        guard canSaveToBoard else { return }
++        selectedSaveBoards = []
++        saveMultiSnapshot = nil
++        if multiSave.operation != nil {
++            saveResults = FaceSaveResultsPresentation(startPrepared: false)
++            return
++        }
++        if model.hasPendingBoardSave {
++            guard isConnected else {
++                model.errorMessage = NSLocalizedString("请先连接原面板，核对上次保存", comment: "pending single board save must be reconciled first")
++                return
++            }
++            finishNamingSetup(asNew: false, pendingName: model.pendingBoardSaveName)
++            return
++        }
+         if model.canOverwriteEditingFace,
+            !(model.editingLocation == .board && !isConnected) {
+             isChoosingSaveTarget = true
+@@ -351,15 +434,51 @@ struct ControlView: View {
+     /// identity the moment the naming sheet opens, so a reconnect or board
+     /// switch that happens while it is open can never redirect this save.
+     private func beginNaming(asNew: Bool) {
++        guard canSaveToBoard else { return }
+         savesAsNew = asNew
+-        saveNameDraft = model.saveName
+-        saveFrame = model.draftFrame
+-        saveFaceID = model.editingFaceId
+-        saveLocation = model.suggestedSaveLocation(asNew: asNew, isConnected: isConnected)
+-        saveBoardSource = saveLocation == .board
+-            ? BoardFaceSaveSource(boardID: connection.boardKey, generation: connection.connectionGeneration)
+-            : nil
+-        isNamingSave = true
++        let inventory = FrozenFaceSaveDestination.connected(in: sessions)
++        if FaceSaveDestinationSelection.requiresPicker(inventory, activeConnection: connection) {
++            saveNameDraft = model.saveName
++            saveFrame = model.draftFrame
++            saveFaceID = model.editingFaceId
++            saveMultiSnapshot = model.multiBoardSaveSnapshot(asNew: asNew, originBoardID: connection.boardKey ?? model.draftBoardID, using: faceLibrary)
++            pickingSaveBoards = FaceSaveTargetsPresentation(destinations: inventory,
++                currentID: saveMultiSnapshot?.originBoardID,
++                overwriteBoardID: saveMultiSnapshot?.overwriteSource?.boardID)
++            return
++        }
++        finishNamingSetup(asNew: asNew)
++    }
++
++    private func finishNamingSetup(asNew: Bool, pendingName: String? = nil) {
++        guard canSaveToBoard else { return }
++        savesAsNew = asNew
++        if selectedSaveBoards.isEmpty {
++            saveNameDraft = model.saveName
++            saveFrame = model.draftFrame
++            saveFaceID = model.editingFaceId
++            saveMultiSnapshot = nil
++        }
++        saveLocation = .board
++        saveBoardSource = BoardFaceSaveSource(boardID: connection.boardKey, generation: connection.connectionGeneration)
++        namingSave = FaceSaveNamingPresentation(title: saveDestinationTitle, name: pendingName ?? saveNameDraft,
++            frame: saveFrame, faceID: saveFaceID, asNew: asNew, boardSource: saveBoardSource,
++            snapshot: saveMultiSnapshot, destinations: selectedSaveBoards)
++    }
++
++    private func adoptPrimaryMultiSaveResult() async {
++        guard let operation = multiSave.operation, adoptedMultiOperationID != operation.id,
++              adoptingMultiOperationID != operation.id else { return }
++        let current = connection
++        guard operation.snapshot.originBoardID == current.boardKey,
++              operation.targets.contains(where: { $0.id == current.boardKey && $0.status == .confirmed }) else { return }
++        adoptingMultiOperationID = operation.id
++        defer { adoptingMultiOperationID = nil }
++        if await model.adoptMultiBoardSave(operation, connection: current) {
++            adoptedMultiOperationID = operation.id
++            guard current === connection, operation.snapshot.originBoardID == current.boardKey else { return }
++            _ = await faceLibrary.reload(connection: current)
++        }
+     }
+ 
+     // MARK: §19 Face parts
+diff --git a/ios/RinaBoard/Features/Control/ControlViewModel.swift b/ios/RinaBoard/Features/Control/ControlViewModel.swift
+index 38dfafb..4799cc4 100644
+--- a/ios/RinaBoard/Features/Control/ControlViewModel.swift
++++ b/ios/RinaBoard/Features/Control/ControlViewModel.swift
+@@ -90,6 +90,8 @@ final class ControlViewModel {
+     /// meantime. `nil` when there is nothing to guard (no face being edited,
+     /// or an old draft from before this guard existed).
+     private(set) var editingBaseline: FaceExpectation?
++    private var editingExpectedBootId: String?
++    private var editingExpectedGen: Int?
+     var editingLocation: FaceLibraryLocation = .local
+     /// Physical board that owns `editingFaceId`. This remains stable across a
+     /// reconnect even though `editingBoardGeneration` changes.
+@@ -105,7 +107,8 @@ final class ControlViewModel {
+     var boardFaceSaveSource: BoardFaceSaveSource? {
+         guard editingFaceId != nil else { return nil }
+         return BoardFaceSaveSource(boardID: editingBoardID,
+-                                   generation: editingBoardGeneration)
++                                   generation: editingBoardGeneration,
++                                   expectedBootId: editingExpectedBootId, expectedGen: editingExpectedGen)
+     }
+     var draftStorageError: String?
+     private var restoringDraft = false
+@@ -161,6 +164,16 @@ final class ControlViewModel {
+         let connection: BoardConnection
+     }
+ 
++    private struct PendingBoardSave: Codable {
++        var payload: FaceUpsertPayload
++        var source: BoardFaceSaveSource
++        var createOnly: Bool
++        var expectedOrder: Int?
++    }
++    private var pendingBoardSave: PendingBoardSave?
++    var hasPendingBoardSave: Bool { pendingBoardSave != nil }
++    var pendingBoardSaveName: String? { pendingBoardSave?.payload.name }
++
+     private struct Draft: Codable {
+         var version = 1
+         var frame: String
+@@ -174,6 +187,17 @@ final class ControlViewModel {
+         /// decodes to `nil` and just means the overwrite guard is unarmed.
+         var baseName: String?
+         var baseFrame: String?
++        var boardFaceID: String?
++        var boardGeneration: UUID?
++        var expectedBootId: String?
++        var expectedGen: Int?
++        var canOverwrite: Bool?
++        var pendingSave: PendingBoardSave?
++    }
++
++    static func hasPendingSave(in storage: DraftStorage) async throws -> Bool {
++        guard let data = try await storage.read("face") else { return false }
++        return try JSONDecoder().decode(Draft.self, from: data).pendingSave != nil
+     }
+ 
+     func restoreDraft() async {
+@@ -190,7 +214,14 @@ final class ControlViewModel {
+             guard draft.version == 1, let frame = PackedFrame(hex94: draft.frame) else { return }
+             draftFrame = frame; saveName = draft.name; fromParts = draft.fromParts
+             selectedCall = draft.call; userHasEdited = true
+-            editingLocation = .local; editingFaceId = draft.localFaceID
++            editingLocation = draft.boardFaceID != nil ? .board : .local
++            editingFaceId = draft.boardFaceID ?? draft.localFaceID
++            editingBoardID = draft.boardID
++            editingBoardGeneration = draft.boardGeneration
++            editingExpectedBootId = draft.expectedBootId
++            editingExpectedGen = draft.expectedGen
++            editingFaceCanOverwrite = draft.canOverwrite ?? false
++            pendingBoardSave = draft.pendingSave
+             draftBoardID = draft.boardID
+             if let baseName = draft.baseName, let baseFrame = draft.baseFrame {
+                 editingBaseline = FaceExpectation(name: baseName, frameHex: baseFrame)
+@@ -216,27 +247,35 @@ final class ControlViewModel {
+         }
+     }
+ 
+-    func persistDraft() async {
+-        guard draftRestoreCompleted || userHasEdited else { return }
++    @discardableResult
++    func persistDraft() async -> Bool {
++        guard draftRestoreCompleted || userHasEdited || pendingBoardSave != nil else { return true }
+         let draft = Draft(frame: draftFrame.hex94, name: saveName, fromParts: fromParts,
+                           call: selectedCall, localFaceID: editingLocation == .local ? editingFaceId : nil,
+                           boardID: draftBoardID,
+-                          baseName: editingBaseline?.name, baseFrame: editingBaseline?.frameHex)
++                          baseName: editingBaseline?.name, baseFrame: editingBaseline?.frameHex,
++                          boardFaceID: editingLocation == .board ? editingFaceId : nil,
++                          boardGeneration: editingBoardGeneration,
++                          expectedBootId: editingExpectedBootId, expectedGen: editingExpectedGen,
++                          canOverwrite: editingFaceCanOverwrite, pendingSave: pendingBoardSave)
+         do {
+             let data = try JSONEncoder().encode(draft)
+             try await draftStorage.write(data, name: "face")
+             draftStorageError = nil
++            return true
+         } catch {
+             draftStorageError = String(
+                 format: NSLocalizedString("将草稿保存到本机失败：%@", comment: "face draft persistence failed"),
+                 error.localizedDescription
+             )
++            return false
+         }
+     }
+ 
+     func releaseOutput() { liveSender?.cancel() }
+     func connectionChanged(generation: UUID? = nil) {
+         clearSendConfirmation()
++        hoveredLED = nil
+         currentBoardGeneration = generation
+         sentGeneration = nil
+         modeSynchronizedGeneration = nil
+@@ -297,6 +336,8 @@ final class ControlViewModel {
+         userHasEdited = false
+         editingFaceId = nil
+         editingBaseline = nil
++        editingExpectedBootId = nil
++        editingExpectedGen = nil
+         editingLocation = .local
+         editingBoardID = nil
+         editingBoardGeneration = nil
+@@ -308,6 +349,10 @@ final class ControlViewModel {
+         // relaunch must find no draft at all, not an "edited" empty one.
+         draftSaveTask?.cancel()
+         draftSaveTask = nil
++        if pendingBoardSave != nil {
++            Task { await persistDraft() }
++            return
++        }
+         let storage = draftStorage
+         Task { [weak self] in
+             do {
+@@ -338,6 +383,8 @@ final class ControlViewModel {
+         editingLocation = request.location
+         editingBoardID = request.boardID
+         editingBoardGeneration = request.boardGeneration
++        editingExpectedBootId = request.expectedBootId
++        editingExpectedGen = request.expectedGen
+         // Protected faces are already forced non-overwritable by the
+         // `SavedFace` overload above; a local-origin face is otherwise fully
+         // overwritable in its own (local) library — only an explicit "edit
+@@ -754,26 +801,34 @@ final class ControlViewModel {
+ 
+     // MARK: Saves hand-off (§11)
+ 
+-    /// The destination frozen when the naming sheet opens (Control §11.3): an
+-    /// existing, overwritable face saves back to its own origin library;
+-    /// otherwise (a brand-new face, or an explicit "save as new") the
+-    /// destination follows the connection the moment the sheet opens — the
+-    /// board if connected, local otherwise.
++    /// Naming always targets the connected board. The view freezes its
++    /// identity when opening the sheet; offline work remains an unsaved draft.
+     func suggestedSaveLocation(asNew: Bool, isConnected: Bool) -> FaceLibraryLocation {
+-        (!asNew && canOverwriteEditingFace) ? editingLocation : (isConnected ? .board : .local)
++        .board
+     }
+ 
+     /// Saves the draft itself; does not send a frame first and does not alter
+     /// `lastSentFrame`. Saving a library entry is not displaying that entry.
+     ///
+-    /// `asNew` only means the saved payload carries no replacing id — it does
+-    /// **not** clear the editor's current target first (unlike the old
+-    /// `startNewFace()` + save sequence): a failed save-as-new must leave the
+-    /// editor still pointed at whatever it could overwrite before the attempt.
++    /// `asNew` allocates a durable new UUID while retaining the editor's
++    /// previous overwrite target until a matching board readback succeeds.
+     @discardableResult
+     func saveEditedFace(name: String, asNew: Bool, to location: FaceLibraryLocation,
+                         library: FaceLibraryModel, connection: BoardConnection,
+                         expectedBoard: BoardFaceSaveSource? = nil) async -> Bool {
++        do {
++            if try await MultiBoardFaceSaveCoordinator.hasRetainedOperation(in: draftStorage) {
++                library.errorMessage = NSLocalizedString("请先查看上次多面板保存的结果并完成核对", comment: "retained multi-board result blocks new single operation")
++                return false
++            }
++        } catch {
++            library.errorMessage = error.localizedDescription
++            return false
++        }
++        guard location == .board, connection.connectionState == .connected else {
++            library.errorMessage = NSLocalizedString("请连接面板后保存；未提交草稿会保留在本机", comment: "saved library requires connected board")
++            return false
++        }
+         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+         guard !clean.isEmpty, clean.utf8.count <= 64 else {
+             library.errorMessage = NSLocalizedString("名称不能为空，且不能超过 64 个 UTF-8 字节", comment: "face name validation")
+@@ -791,6 +846,9 @@ final class ControlViewModel {
+                 return false
+             }
+         }
++        if connection.supportsConditionalFaceWrites && connection.currentFacesGeneration == nil {
++            guard await library.reload(connection: connection) else { return false }
++        }
+         let beforeFrame = draftFrame
+         let beforeParts = fromParts
+         let beforeCall = selectedCall
+@@ -801,44 +859,110 @@ final class ControlViewModel {
+         let beforeGeneration = editingBoardGeneration
+         let replacingID = !asNew && editingFaceCanOverwrite && editingLocation == location
+             ? editingFaceId : nil
+-        // A rename made earlier in this same session (e.g. via the saved-list
+-        // sheet) already reached the library's own copy of `replacingID`, but
+-        // never touched `editingBaseline` — it isn't a change made elsewhere.
+-        // Adopt the known name into the baseline so the guard only fires on
+-        // a real foreign edit. Frame differences are never adopted this way:
+-        // only a foreign edit changes the frame, and that must still guard.
+-        if let replacingID, var baseline = editingBaseline,
+-           let known = library.face(id: replacingID, in: location),
+-           known.packedFrame?.hex94 == baseline.frameHex, known.name != baseline.name {
+-            baseline.name = known.name
+-            editingBaseline = baseline
++        if let replacingID, let baseline = editingBaseline,
++           let renamed = library.confirmedRenameBaseline(id: replacingID, from: baseline) {
++            editingBaseline = renamed
++            editingExpectedBootId = library.boardBootId
++            editingExpectedGen = library.boardFacesGen
+         }
+-        let payload = FaceUpsertPayload(
+-            id: location == .board ? replacingID : nil,
++        let pureParts = fromParts && self.library?.compose(call: selectedCall) == draftFrame
++        var payload = FaceUpsertPayload(
++            id: replacingID ?? ("user_" + UUID().uuidString.lowercased()),
+             name: clean,
+-            type: (fromParts ? SavedFace.Kind.parts : .custom).rawValue,
++            type: (pureParts ? SavedFace.Kind.parts : .custom).rawValue,
+             frameHex: draftFrame.hex94,
+-            call: fromParts ? SavedFace.CallIds(leye: selectedCall.leye, reye: selectedCall.reye,
++            call: pureParts ? SavedFace.CallIds(leye: selectedCall.leye, reye: selectedCall.reye,
+                                                mouth: selectedCall.mouth, cheek: selectedCall.cheek) : nil,
+             expect: replacingID != nil ? editingBaseline : nil
+         )
+         let destination = BoardFaceSaveSource(boardID: connection.boardKey,
+-                                              generation: connection.connectionGeneration)
++                                              generation: connection.connectionGeneration,
++                                              expectedBootId: connection.bootId,
++                                              expectedGen: connection.currentFacesGeneration)
++        if pureParts, connection.supportsPartsReferences {
++            payload.partsReferenceOnly = true
++            payload.partsCatalog = "rina_expression_parts_370_runtime_v4"
++            payload.partsVersion = 4
++        }
++        payload = library.canonicalPayload(payload, supportsPartsReferences: connection.supportsPartsReferences)
+         let result: FaceLibraryModel.SaveOutcome
+-        switch location {
+-        case .local:
+-            result = await library.saveLocal(payload, replacingID: replacingID)
+-        case .board:
+-            result = await library.save(payload, source: boardFaceSaveSource, connection: connection)
++        let wasReconciling = pendingBoardSave != nil
++        if var pending = pendingBoardSave {
++            guard FaceLibraryModel.sameBoard(sourceBoardID: pending.source.boardID,
++                                              sourceGeneration: pending.source.generation,
++                                              currentBoardID: connection.boardKey,
++                                              currentGeneration: connection.connectionGeneration) else {
++                library.errorMessage = NSLocalizedString("结果待确认：请连接原面板核对", comment: "pending face save belongs to another board")
++                return false
++            }
++            guard await library.reload(connection: connection) else { return false }
++            if library.matchesSavedPayload(pending.payload, expectedOrder: pending.expectedOrder) {
++                result = .saved(id: pending.payload.id)
++            } else if library.face(id: pending.payload.id ?? "", in: .board) != nil {
++                pendingBoardSave = nil
++                await persistDraft()
++                library.errorMessage = NSLocalizedString("此表情已在别处被修改：请重新载入后再保存", comment: "pending save conflicts")
++                return false
++            } else if pending.createOnly && connection.supportsConditionalFaceWrites {
++                // Absence was just confirmed. The firmware atomically checks both
++                // this version and createOnly before reusing the original UUID.
++                guard connection.connectionState == .connected,
++                      FaceLibraryModel.sameBoard(sourceBoardID: pending.source.boardID,
++                                                  sourceGeneration: pending.source.generation,
++                                                  currentBoardID: connection.boardKey,
++                                                  currentGeneration: connection.connectionGeneration) else { return false }
++                pending.source = BoardFaceSaveSource(boardID: connection.boardKey,
++                                                       generation: connection.connectionGeneration,
++                                                       expectedBootId: connection.bootId,
++                                                       expectedGen: connection.currentFacesGeneration)
++                pending.expectedOrder = (library.faceDocument.faces.map(\.order).max() ?? 0) + 1
++                pendingBoardSave = pending
++                guard await persistDraft() else { return false }
++                result = await library.save(pending.payload, source: pending.source,
++                                            createOnly: true, connection: connection)
++            } else {
++                library.errorMessage = NSLocalizedString("结果待确认：此固件无法安全重试，请刷新或升级固件", comment: "pending face needs conditional firmware")
++                return false
++            }
++            payload = pending.payload
++        } else {
++            let source = replacingID != nil ? (boardFaceSaveSource ?? destination) : destination
++            let expectedOrder = library.face(id: payload.id ?? "", in: .board)?.order
++                ?? (library.boardGeneration == connection.connectionGeneration
++                    ? (library.faceDocument.faces.map(\.order).max() ?? 0) + 1 : nil)
++            pendingBoardSave = PendingBoardSave(payload: payload, source: source,
++                                                createOnly: replacingID == nil, expectedOrder: expectedOrder)
++            draftSaveTask?.cancel()
++            // A durable identity must precede the first byte sent to the board.
++            guard await persistDraft() else {
++                pendingBoardSave = nil
++                library.errorMessage = draftStorageError
++                return false
++            }
++            result = await library.save(payload, source: source,
++                                        createOnly: replacingID == nil, connection: connection)
++        }
++        guard case .saved(let savedID) = result else {
++            if case .failed = result { pendingBoardSave = nil; await persistDraft() }
++            return false
++        }
++        pendingBoardSave = nil
++        if wasReconciling && (payload.name != clean || payload.frameHex != beforeFrame.hex94) {
++            await persistDraft()
++            library.errorMessage = NSLocalizedString("上次保存已核对；当前编辑尚未保存，请再次保存", comment: "old save confirmed current edits unsaved")
++            return false
+         }
+-        guard case .saved(let savedID) = result else { return false }
+ 
+         // Saving may finish after an explicit board switch or a new edit in
+         // another view. The file was saved, but must not relabel that new draft.
+-        guard draftFrame == beforeFrame, fromParts == beforeParts,
++        guard draftFrame.hex94 == payload.frameHex,
++              draftFrame == beforeFrame, fromParts == beforeParts,
+               selectedCall == beforeCall, editingFaceId == beforeID,
+               editingLocation == beforeLocation, editingBoardID == beforeBoardID,
+-              draftBoardID == beforeDraftBoardID, editingBoardGeneration == beforeGeneration else { return true }
++              draftBoardID == beforeDraftBoardID, editingBoardGeneration == beforeGeneration else {
++            await persistDraft()
++            return true
++        }
+         // `.saved(id: nil)` keeps the old `didSave` semantics: the editor's
+         // target (id/location/board/overwrite) is left exactly as it was,
+         // only `saveName` follows the save.
+@@ -849,9 +973,58 @@ final class ControlViewModel {
+             editingBoardGeneration = location == .board ? destination.generation : nil
+             editingFaceCanOverwrite = true
+         }
+-        editingBaseline = FaceExpectation(name: clean, frameHex: draftFrame.hex94)
+-        saveName = clean
+-        scheduleDraftSave()
++        editingBaseline = FaceExpectation(name: payload.name, frameHex: payload.frameHex)
++        editingExpectedBootId = connection.bootId
++        editingExpectedGen = connection.currentFacesGeneration
++        saveName = payload.name
++        draftSaveTask?.cancel()
++        await persistDraft()
++        return true
++    }
++
++    func multiBoardSaveSnapshot(asNew: Bool, originBoardID: String?, using faceLibrary: FaceLibraryModel? = nil) -> MultiBoardFaceSaveSnapshot {
++        let pure = fromParts && library?.compose(call: selectedCall) == draftFrame
++        let overwrite = !asNew && editingFaceCanOverwrite && editingLocation == .board ? editingFaceId : nil
++        var baseline = editingBaseline
++        var source = overwrite != nil ? boardFaceSaveSource : nil
++        if let overwrite, let original = baseline,
++           let renamed = faceLibrary?.confirmedRenameBaseline(id: overwrite, from: original) {
++            baseline = renamed
++            source?.expectedBootId = faceLibrary?.boardBootId
++            source?.expectedGen = faceLibrary?.boardFacesGen
++        }
++        return MultiBoardFaceSaveSnapshot(frameHex: draftFrame.hex94, type: pure ? "parts" : "custom",
++                                           call: pure ? .init(leye: selectedCall.leye, reye: selectedCall.reye,
++                                                              mouth: selectedCall.mouth, cheek: selectedCall.cheek) : nil,
++                                           originBoardID: originBoardID, editingFaceID: editingFaceId,
++                                           overwriteID: overwrite, overwriteSource: source,
++                                           expectation: overwrite != nil ? baseline : nil)
++    }
++
++    /// Only the original primary editor can adopt its own confirmed result.
++    /// Remote-only saves never change its overwrite target or conflict baseline.
++    @discardableResult
++    func adoptMultiBoardSave(_ operation: MultiBoardFaceSaveCoordinator.Operation,
++                             connection: BoardConnection) async -> Bool {
++        let pure = fromParts && library?.compose(call: selectedCall) == draftFrame
++        let currentCall: SavedFace.CallIds? = pure ? .init(leye: selectedCall.leye, reye: selectedCall.reye,
++                                                           mouth: selectedCall.mouth, cheek: selectedCall.cheek) : nil
++        guard operation.snapshot.originBoardID == connection.boardKey,
++              saveName == operation.name,
++              (pure ? "parts" : "custom") == operation.snapshot.type,
++              currentCall == operation.snapshot.call,
++              draftFrame.hex94 == operation.snapshot.frameHex,
++              editingFaceId == operation.snapshot.editingFaceID,
++              let confirmed = operation.targets.first(where: { $0.id == connection.boardKey && $0.status == .confirmed }),
++              confirmed.generation == connection.connectionGeneration,
++              confirmed.carrier == connection.carrierGeneration else { return false }
++        saveName = operation.name
++        didSave(as: confirmed.payload.id, on: BoardFaceSaveSource(boardID: confirmed.id,
++                                                                  generation: confirmed.generation,
++                                                                  expectedBootId: connection.bootId,
++                                                                  expectedGen: connection.currentFacesGeneration))
++        draftSaveTask?.cancel()
++        await persistDraft()
+         return true
+     }
+ 
+@@ -886,6 +1059,8 @@ final class ControlViewModel {
+         sentGeneration = nil
+         userHasEdited = true
+         editingFaceId = face.id
++        editingExpectedBootId = nil
++        editingExpectedGen = nil
+         editingBaseline = FaceExpectation(name: face.name, frameHex: frame.hex94)
+         editingLocation = .board
+         editingBoardID = draftBoardID
+@@ -909,6 +1084,8 @@ final class ControlViewModel {
+     }
+ 
+     func startNewFace() {
++        editingExpectedBootId = nil
++        editingExpectedGen = nil
+         editingFaceId = nil
+         editingBaseline = nil
+         editingBoardID = nil
+@@ -933,6 +1110,8 @@ final class ControlViewModel {
+             editingFaceCanOverwrite = true
+         }
+         editingBaseline = FaceExpectation(name: saveName, frameHex: draftFrame.hex94)
++        editingExpectedBootId = destination.expectedBootId
++        editingExpectedGen = destination.expectedGen
+     }
+ 
+     // MARK: Board display synchronization
+diff --git a/ios/RinaBoard/Features/ControlCenter/FoldedControlCenterToolbar.swift b/ios/RinaBoard/Features/ControlCenter/FoldedControlCenterToolbar.swift
+index 6a12f13..9066c3f 100644
+--- a/ios/RinaBoard/Features/ControlCenter/FoldedControlCenterToolbar.swift
++++ b/ios/RinaBoard/Features/ControlCenter/FoldedControlCenterToolbar.swift
+@@ -103,10 +103,14 @@ private struct BoardToolbarTitleVisibility: ViewModifier {
+ private struct BoardToolbarCompressionPreference: ViewModifier {
+     let enabled: Bool
+     @ViewBuilder func body(content: Content) -> some View {
++        #if targetEnvironment(macCatalyst)
++        content
++        #else
+         if #available(iOS 27.1, *), enabled {
+             content.toolbarVerticalCompressionBehavior(.prefersTabBar)
+         } else {
+             content
+         }
++        #endif
+     }
+ }
+diff --git a/ios/RinaBoard/Features/Faces/FaceLibraryModel.swift b/ios/RinaBoard/Features/Faces/FaceLibraryModel.swift
+index a7d09aa..f9f0544 100644
+--- a/ios/RinaBoard/Features/Faces/FaceLibraryModel.swift
++++ b/ios/RinaBoard/Features/Faces/FaceLibraryModel.swift
+@@ -1,4 +1,5 @@
+ import Foundation
++import CryptoKit
+ import RinaCore
+ 
+ enum FaceLibraryLocation: String, CaseIterable, Codable, Hashable, Identifiable {
+@@ -9,7 +10,7 @@ enum FaceLibraryLocation: String, CaseIterable, Codable, Hashable, Identifiable
+     var title: String {
+         switch self {
+         case .local: NSLocalizedString("本机", comment: "device face library location")
+-        case .board: NSLocalizedString("当前面板", comment: "connected board face library location")
++        case .board: NSLocalizedString("板上表情", comment: "connected board face library location")
+         }
+     }
+ }
+@@ -21,6 +22,8 @@ struct FaceEditRequest: Identifiable, Equatable {
+     let asCopy: Bool
+     let boardID: String?
+     let boardGeneration: UUID?
++    var expectedBootId: String? = nil
++    var expectedGen: Int? = nil
+ }
+ 
+ struct FaceBatchResult: Equatable {
+@@ -31,17 +34,19 @@ struct FaceBatchResult: Equatable {
+     var failedCount: Int { failures.count }
+ }
+ 
+-struct BoardFaceSaveSource: Equatable {
++struct BoardFaceSaveSource: Equatable, Codable {
+     let boardID: String?
+     let generation: UUID?
++    var expectedBootId: String? = nil
++    var expectedGen: Int? = nil
+ }
+ 
+ private struct LocalDeletion {
+     let faces: [SavedFace]
+ }
+ 
+-/// App-scoped state for the independent device library and the face document
+-/// belonging to the current board connection.
++/// The current board's confirmed library, with isolated legacy-store helpers
++/// retained for explicit migration and compatibility. Drafts live separately.
+ @Observable
+ @MainActor
+ final class FaceLibraryModel {
+@@ -62,6 +67,11 @@ final class FaceLibraryModel {
+     /// Unlike `boardGeneration`, this survives a reconnect to the same board.
+     private(set) var boardID: String?
+     private(set) var boardGeneration: UUID?
++    private(set) var boardBootId: String?
++    private(set) var boardFacesGen: Int?
++    /// Only an explicitly confirmed rename in this app may advance an editor baseline.
++    private var confirmedRenames: [String: (before: FaceExpectation, after: FaceExpectation, bootId: String?, gen: Int?)] = [:]
++    private var boardSaveBusy = false
+ 
+     var isLoading = false
+     var isSaving = false
+@@ -74,6 +84,7 @@ final class FaceLibraryModel {
+     var pendingEditRequest: FaceEditRequest?
+ 
+     private let localStore: any LocalFaceStoring
++    private let partsLibraryForSaving: PartsLibrary?
+     private var localDeletion: LocalDeletion?
+     private var nextEditRequestID: UInt64 = 1
+     private var localLoadWaiters: [CheckedContinuation<Void, Never>] = []
+@@ -93,6 +104,7 @@ final class FaceLibraryModel {
+ 
+     init(localStore: any LocalFaceStoring = LocalFaceStore()) {
+         self.localStore = localStore
++        self.partsLibraryForSaving = try? RinaResources.partsLibrary(bundle: .main)
+     }
+ 
+     private func beginLocalMutation() async {
+@@ -113,6 +125,7 @@ final class FaceLibraryModel {
+ 
+     enum SaveOutcome: Equatable {
+         case saved(id: String?)
++        case pending(id: String)
+         case failed
+     }
+ 
+@@ -215,7 +228,6 @@ final class FaceLibraryModel {
+                 localDocument = candidate
+             } else {
+                 let candidate = bundledDefaults(bundle: bundle)
+-                try await localStore.save(candidate)
+                 localDocument = candidate
+             }
+             isLocalLoaded = true
+@@ -284,7 +296,6 @@ final class FaceLibraryModel {
+                 localDocument = candidate
+             } else {
+                 let candidate = bundledDefaults(bundle: bundle)
+-                try await localStore.save(candidate)
+                 localDocument = candidate
+             }
+             isLocalLoaded = true
+@@ -330,6 +341,7 @@ final class FaceLibraryModel {
+         isLoading = false
+         faceDocument = FaceDocument()
+         boardGeneration = nil
++        confirmedRenames.removeAll()
+     }
+ 
+     @discardableResult
+@@ -356,9 +368,22 @@ final class FaceLibraryModel {
+             let data = try await connection.getFaces()
+             guard generation == connection.connectionGeneration,
+                   revision == boardLoadRevision else { return false }
+-            faceDocument = try FaceDocument(jsonData: data)
++            guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
++                  envelope["category"] as? String == FaceDocument.expectedCategory,
++                  envelope["faces"] is [[String: Any]] else {
++                throw CocoaError(.fileReadCorruptFile)
++            }
++            let parsed = try FaceDocument.decodedForImport(jsonData: data)
++            guard parsed.skippedFaceCount == 0,
++                  parsed.document.faces.allSatisfy({ $0.packedFrame != nil }),
++                  Set(parsed.document.faces.map(\.id)).count == parsed.document.faces.count else {
++                throw CocoaError(.fileReadCorruptFile)
++            }
++            faceDocument = parsed.document
+             boardID = currentBoardID
+             boardGeneration = generation
++            boardBootId = connection.bootId
++            boardFacesGen = connection.currentFacesGeneration
+             return true
+         } catch is CancellationError {
+             return false
+@@ -387,7 +412,9 @@ final class FaceLibraryModel {
+             location: location,
+             asCopy: asCopy || isProtected(face),
+             boardID: location == .board ? boardID : nil,
+-            boardGeneration: location == .board ? connectionGeneration : nil
++            boardGeneration: location == .board ? connectionGeneration : nil,
++            expectedBootId: location == .board ? boardBootId : nil,
++            expectedGen: location == .board ? boardFacesGen : nil
+         )
+     }
+ 
+@@ -457,9 +484,120 @@ final class FaceLibraryModel {
+ 
+     // MARK: Save / update
+ 
++    /// Metadata never gets to replace the actual pixel snapshot. All save
++    /// entry points, including legacy migration/copy, share this check.
++    func canonicalPayload(_ input: FaceUpsertPayload, supportsPartsReferences: Bool) -> FaceUpsertPayload {
++        var payload = input
++        guard payload.type == "parts" else { return payload }
++        let selected: PartsCall? = payload.call.flatMap { call in
++            guard let leye = call.leye, let reye = call.reye,
++                  let mouth = call.mouth, let cheek = call.cheek else { return nil }
++            return PartsCall(leye: leye, reye: reye, mouth: mouth, cheek: cheek)
++        }
++        let pureParts: Bool
++        if let selected, let library = partsLibraryForSaving,
++           PartGroup.allCases.allSatisfy({ library.call.ids[$0.rawValue]?.contains(selected[$0]) == true }) {
++            pureParts = library.compose(call: selected).hex94 == payload.frameHex
++        } else { pureParts = false }
++        if pureParts && supportsPartsReferences {
++            payload.partsReferenceOnly = true
++            payload.partsCatalog = "rina_expression_parts_370_runtime_v4"
++            payload.partsVersion = 4
++        } else {
++            payload.partsReferenceOnly = false
++            payload.partsCatalog = nil
++            payload.partsVersion = nil
++            if !pureParts {
++                payload.type = "custom"
++                payload.call = nil
++            }
++        }
++        return payload
++    }
++
++    private struct PendingCreate: Codable {
++        var payload: FaceUpsertPayload
++        var source: BoardFaceSaveSource
++    }
++    private let pendingCreateStorage = DraftStorage.shared
++
++    /// Direct list operations (duplicate/copy) use the same durable identity
++    /// rule as the editor. A repeated explicit action first reconciles its
++    /// prior snapshot instead of issuing another unidentified creation.
+     @discardableResult
+     func save(_ payload: FaceUpsertPayload, source: BoardFaceSaveSource? = nil,
+-              connection: BoardConnection) async -> SaveOutcome {
++              createOnly: Bool = false, connection: BoardConnection) async -> SaveOutcome {
++        let payload = canonicalPayload(payload, supportsPartsReferences: connection.supportsPartsReferences)
++        guard !boardSaveBusy else {
++            errorMessage = NSLocalizedString("正在保存，请稍候", comment: "face write already active")
++            return .failed
++        }
++        boardSaveBusy = true
++        defer { boardSaveBusy = false }
++        guard payload.id == nil else {
++            return await saveBoardPayload(payload, source: source, createOnly: createOnly, connection: connection)
++        }
++        guard connection.connectionState == .connected else { return .failed }
++        if connection.supportsConditionalFaceWrites && connection.currentFacesGeneration == nil {
++            guard await reload(connection: connection) else { return .failed }
++        }
++        let target = source ?? BoardFaceSaveSource(boardID: connection.boardKey,
++                                                   generation: connection.connectionGeneration,
++                                                   expectedBootId: connection.bootId,
++                                                   expectedGen: connection.currentFacesGeneration)
++        do {
++            let data = try await pendingCreateStorage.read("board_face_creates")
++            var pending = try data.map { try JSONDecoder().decode([PendingCreate].self, from: $0) } ?? []
++            let existing = pending.firstIndex {
++                Self.sameBoard(sourceBoardID: $0.source.boardID, sourceGeneration: $0.source.generation,
++                               currentBoardID: connection.boardKey, currentGeneration: connection.connectionGeneration)
++                    && $0.payload.name == cleanName(payload.name) && $0.payload.frameHex == payload.frameHex
++                    && $0.payload.type == payload.type && Self.callsEqual($0.payload.call, payload.call)
++            }
++            var operation: PendingCreate
++            if let existing {
++                operation = pending[existing]
++                guard operation.payload.id != nil else { throw CocoaError(.fileReadCorruptFile) }
++                guard await reload(connection: connection) else { return .pending(id: operation.payload.id!) }
++                if matchesSavedPayload(operation.payload) {
++                    pending.remove(at: existing)
++                    try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
++                    return .saved(id: operation.payload.id)
++                }
++                guard face(id: operation.payload.id!, in: .board) == nil,
++                      connection.supportsConditionalFaceWrites else {
++                    errorMessage = NSLocalizedString("结果待确认或目标已改变：请检查板上表情", comment: "direct create needs reconciliation")
++                    return .pending(id: operation.payload.id!)
++                }
++                operation.source = BoardFaceSaveSource(boardID: connection.boardKey,
++                                                       generation: connection.connectionGeneration,
++                                                       expectedBootId: connection.bootId,
++                                                       expectedGen: connection.currentFacesGeneration)
++                pending[existing] = operation
++            } else {
++                var submitted = payload
++                submitted.id = "user_" + UUID().uuidString.lowercased()
++                submitted.name = cleanName(submitted.name)
++                operation = PendingCreate(payload: submitted, source: target)
++                pending.append(operation)
++            }
++            try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
++            let result = await saveBoardPayload(operation.payload, source: operation.source,
++                                                createOnly: true, connection: connection)
++            if case .saved = result {
++                pending.removeAll { $0.payload.id == operation.payload.id }
++                try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
++            }
++            return result
++        } catch {
++            errorMessage = error.localizedDescription
++            return .failed
++        }
++    }
++
++    @discardableResult
++    private func saveBoardPayload(_ payload: FaceUpsertPayload, source: BoardFaceSaveSource? = nil,
++              createOnly: Bool = false, connection: BoardConnection) async -> SaveOutcome {
+         errorMessage = nil
+         var payload = payload
+         // Enforce the firmware's byte limit at the final wire boundary too;
+@@ -482,61 +620,67 @@ final class FaceLibraryModel {
+                 return .failed
+             }
+         }
++        if payload.id == nil { payload.id = "user_" + UUID().uuidString.lowercased() }
++        guard let targetID = payload.id else { return .failed }
++        let order = faceDocument.faces.first(where: { $0.id == targetID })?.order
++            ?? (createOnly && boardGeneration == connection.connectionGeneration
++                ? (faceDocument.faces.map(\.order).max() ?? 0) + 1 : nil)
+         isSaving = true
+         defer { isSaving = false }
+-        // Captured immediately before the awaited board-mutating call (R07):
+-        // if the model has switched to a different board by the time it
+-        // returns, the save already happened for real on `connection`, but
+-        // the shared `faceDocument`/`boardID`/`boardGeneration` now belong to
+-        // whatever board is current and must not be overwritten with it.
++        let generation = connection.connectionGeneration
+         let revision = boardLoadRevision
+         do {
+-            _ = try await connection.faceUpsert(payload)
+-            guard boardStillShown(connection, since: revision) else { return .saved(id: payload.id) }
+-            let savedFrame = PackedFrame(hex94: payload.frameHex)
+-            if let id = payload.id, revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation,
+-               let frame = savedFrame,
+-               let index = faceDocument.faces.firstIndex(where: { $0.id == id }) {
+-                faceDocument.faces[index].name = payload.name
+-                faceDocument.faces[index].type = SavedFace.Kind(rawValue: payload.type) ?? .custom
+-                faceDocument.faces[index].frameBytes = frame.bytes.map(Int.init)
+-                faceDocument.faces[index].updatedAt = timestamp()
+-                faceDocument.faces[index].call = payload.call
+-                boardID = connection.boardKey
+-                boardGeneration = connection.connectionGeneration
+-                return .saved(id: id)
++            _ = try await connection.faceUpsert(payload, createOnly: createOnly,
++                                                expectedBootId: source?.expectedBootId,
++                                                expectedGen: source?.expectedGen)
++            guard connection.connectionGeneration == generation,
++                  boardStillShown(connection, since: revision) else { return .pending(id: targetID) }
++            guard await reload(connection: connection) else {
++                errorMessage = NSLocalizedString("结果待确认：请连接原面板后再次保存以核对", comment: "face save needs readback")
++                return .pending(id: targetID)
+             }
+-            await reload(connection: connection)
+-            if payload.id == nil, let frame = savedFrame {
+-                let bytes = frame.bytes.map(Int.init)
+-                let matched = faceDocument.faces.last { $0.name == payload.name && $0.frameBytes == bytes }
+-                return .saved(id: matched?.id)
++            guard matchesSavedPayload(payload, expectedOrder: order) else {
++                errorMessage = NSLocalizedString("保存核对失败：板上内容与提交不同，请重新载入或另存", comment: "face save readback conflict")
++                return .pending(id: targetID)
+             }
+-            return .saved(id: payload.id)
++            return .saved(id: targetID)
+         } catch {
+-            guard boardStillShown(connection, since: revision) else { return .failed }
+-            // A reply lost after the write actually landed (ack dropped, link
+-            // hiccup) surfaces here as some transport error, not necessarily
+-            // a 409 — but if the board rejected specifically because our own
+-            // write already happened, a reload proves it and the retry the
+-            // caller would otherwise do is pointless (and would 409 again).
+-            if let linkError = error as? RinaLinkError, linkError.code == 409,
+-               let id = payload.id, payload.expect != nil {
+-                await reload(connection: connection)
+-                if boardStillShown(connection, since: revision),
+-                   let stored = faceDocument.faces.first(where: { $0.id == id }),
+-                   stored.name == payload.name,
+-                   stored.packedFrame?.hex94 == payload.frameHex,
+-                   Self.callsEqual(stored.type == .parts ? stored.call : nil, payload.call) {
++            guard generation == connection.connectionGeneration,
++                  boardStillShown(connection, since: revision) else { return .pending(id: targetID) }
++            if let linkError = error as? RinaLinkError,
++               let code = linkError.code, [400, 404, 409].contains(code) {
++                await handleFaceOpError(error, connection: connection)
++                if matchesSavedPayload(payload, expectedOrder: order) {
+                     errorMessage = nil
+-                    return .saved(id: id)
++                    return .saved(id: targetID)
+                 }
++                return .failed
+             }
+-            await handleFaceOpError(error, connection: connection)
+-            return .failed
++            errorMessage = NSLocalizedString("结果待确认：请连接原面板后再次保存以核对", comment: "face save needs readback")
++            return .pending(id: targetID)
+         }
+     }
+ 
++    func matchesSavedPayload(_ payload: FaceUpsertPayload, expectedOrder: Int? = nil) -> Bool {
++        guard let face = faceDocument.faces.first(where: { $0.id == payload.id }),
++              face.name == payload.name, face.type.rawValue == payload.type,
++              face.packedFrame?.hex94 == payload.frameHex,
++              expectedOrder == nil || face.order == expectedOrder,
++              Self.callsEqual(face.type == .parts ? face.call : nil, payload.call) else { return false }
++        if payload.partsReferenceOnly {
++            return face.partsCatalog == payload.partsCatalog && face.partsVersion == payload.partsVersion
++        }
++        return true
++    }
++
++    func confirmedRenameBaseline(id: String, from baseline: FaceExpectation) -> FaceExpectation? {
++        guard let rename = confirmedRenames[id], rename.before == baseline,
++              rename.bootId == boardBootId, rename.gen == boardFacesGen,
++              let current = face(id: id, in: .board),
++              current.name == rename.after.name, current.packedFrame?.hex94 == rename.after.frameHex else { return nil }
++        return rename.after
++    }
++
+     /// Treats `nil` and an all-empty `CallIds` as equal: `face_upsert`
+     /// payloads for a non-parts face carry `call: nil`, but a round trip
+     /// through the board's stored document can come back as an explicit
+@@ -646,6 +790,11 @@ final class FaceLibraryModel {
+             return await commitLocal(candidate)
+         case .board:
+             guard await validateBoard(connection) else { return false }
++            guard let current = self.face(id: face.id, in: .board),
++                  current.name == face.name, current.packedFrame == face.packedFrame else {
++                errorMessage = NSLocalizedString("此表情已在别处被修改：请重新载入后再操作", comment: "stale face action")
++                return false
++            }
+             // Captured after `validateBoard`'s own possible reload (R07): the
+             // signal for "did the board change under us" is a bump that
+             // happens strictly after this point.
+@@ -660,6 +809,14 @@ final class FaceLibraryModel {
+                 } else {
+                     await reload(connection: connection)
+                 }
++                guard let confirmed = faceDocument.faces.first(where: { $0.id == face.id }),
++                      confirmed.name == clean, confirmed.packedFrame == face.packedFrame,
++                      let frame = face.packedFrame else { return false }
++                boardBootId = connection.bootId
++                boardFacesGen = connection.currentFacesGeneration
++                confirmedRenames[face.id] = (FaceExpectation(name: face.name, frameHex: frame.hex94),
++                                             FaceExpectation(name: clean, frameHex: frame.hex94),
++                                             boardBootId, boardFacesGen)
+                 return true
+             } catch {
+                 guard boardStillShown(connection, since: revision) else { return false }
+@@ -701,7 +858,7 @@ final class FaceLibraryModel {
+         for face in faces {
+             switch await copy(face, from: source, to: destination, connection: connection) {
+             case .saved: result.succeededIDs.append(face.id)
+-            case .failed:
++            case .pending, .failed:
+                 result.failures[face.id] = errorMessage
+                     ?? NSLocalizedString("复制失败", comment: "saved face copy failed")
+             }
+@@ -725,12 +882,19 @@ final class FaceLibraryModel {
+             return await deleteLocal([face]).failedCount == 0
+         case .board:
+             guard await validateBoard(connection) else { return false }
++            guard let current = self.face(id: face.id, in: .board),
++                  current.name == face.name, current.packedFrame == face.packedFrame else {
++                errorMessage = NSLocalizedString("此表情已在别处被修改：请重新载入后再操作", comment: "stale face action")
++                return false
++            }
+             let revision = boardLoadRevision
+             do {
+                 _ = try await connection.faceDelete(id: face.id)
+                 guard boardStillShown(connection, since: revision) else { return true }
+                 if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
+                     faceDocument.faces.removeAll { $0.id == face.id }
++                    boardBootId = connection.bootId
++                    boardFacesGen = connection.currentFacesGeneration
+                 } else {
+                     await reload(connection: connection)
+                 }
+@@ -872,6 +1036,8 @@ final class FaceLibraryModel {
+                 guard boardStillShown(connection, since: revision) else { return true }
+                 if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
+                     assignOrders(defaults: defaultFaces, users: newUserOrder, in: &faceDocument)
++                    boardBootId = connection.bootId
++                    boardFacesGen = connection.currentFacesGeneration
+                 } else {
+                     return await reload(connection: connection)
+                 }
+@@ -902,6 +1068,8 @@ final class FaceLibraryModel {
+             guard boardStillShown(connection, since: revision) else { return true }
+             if revision == boardLoadRevision, connection.lastFaceOpGenMatchedExpectation {
+                 assignOrders(defaults: [], users: newOrder, in: &faceDocument)
++                boardBootId = connection.bootId
++                boardFacesGen = connection.currentFacesGeneration
+             } else {
+                 return await reload(connection: connection)
+             }
+@@ -982,6 +1150,17 @@ final class FaceLibraryModel {
+             return
+         }
+         var decoded = parsed.document
++        for index in decoded.faces.indices where decoded.faces[index].type == .parts {
++            let face = decoded.faces[index]
++            guard let frame = face.packedFrame else { continue }
++            let normalized = canonicalPayload(FaceUpsertPayload(id: face.id, name: face.name, type: "parts",
++                                                                 frameHex: frame.hex94, call: face.call),
++                                              supportsPartsReferences: connection.supportsPartsReferences)
++            decoded.faces[index].type = SavedFace.Kind(rawValue: normalized.type) ?? .custom
++            decoded.faces[index].call = normalized.call
++            decoded.faces[index].partsCatalog = normalized.partsCatalog
++            decoded.faces[index].partsVersion = normalized.partsVersion
++        }
+         // A missing `category` already defaults to `expectedCategory` on
+         // decode; only a present-but-different value (or a whole-document
+         // shape the firmware doesn't recognize as a face library) is refused —
+@@ -1025,6 +1204,79 @@ final class FaceLibraryModel {
+         }
+     }
+ 
++    /// Reads the original legacy store for explicit migration only. No seeding,
++    /// normalization or writes can alter the source file.
++    func legacyMigrationFaces() async -> [SavedFace] {
++        do {
++            return try await localStore.load()?.sortedFaces.filter {
++                $0.type != .default && $0.packedFrame != nil
++            } ?? []
++        } catch {
++            errorMessage = error.localizedDescription
++            return []
++        }
++    }
++
++    @discardableResult
++    func migrateLegacyFaces(_ sources: [SavedFace], to target: BoardFaceSaveSource,
++                            connection: BoardConnection) async -> FaceBatchResult {
++        var result = FaceBatchResult()
++        guard let physicalID = target.boardID, connection.supportsConditionalFaceWrites else {
++            errorMessage = NSLocalizedString("请连接支持条件写入的面板后复制旧表情", comment: "legacy migration needs verified conditional board")
++            return result
++        }
++        // The selected value snapshots are fixed by the migration sheet. Each
++        // snapshot has a deterministic target UUID equivalent, including board
++        // identity, so cancelling or relaunching never creates another copy.
++        let encoder = JSONEncoder()
++        encoder.outputFormatting = [.sortedKeys]
++        for source in sources {
++            guard connection.connectionState == .connected,
++                  connection.boardKey == physicalID,
++                  connection.connectionGeneration == target.generation else {
++                result.failures[source.id] = NSLocalizedString("连接已改变，复制已停止", comment: "migration connection changed")
++                break
++            }
++            guard let frame = source.packedFrame, let encoded = try? encoder.encode(source) else { continue }
++            var key = Data(physicalID.utf8)
++            key.append(0)
++            key.append(encoded)
++            let digest = SHA256.hash(data: key).map { String(format: "%02x", $0) }.joined()
++            let id = "migrated_" + String(digest.prefix(32))
++            let payload = canonicalPayload(FaceUpsertPayload(id: id, name: cleanName(source.name),
++                                            type: source.type == .parts ? "parts" : "custom",
++                                            frameHex: frame.hex94,
++                                            call: source.type == .parts ? source.call : nil),
++                                            supportsPartsReferences: connection.supportsPartsReferences)
++            guard await reload(connection: connection) else {
++                result.failures[source.id] = errorMessage ?? "Read failed"
++                break
++            }
++            if matchesSavedPayload(payload) {
++                result.succeededIDs.append(source.id)
++                continue
++            }
++            guard face(id: id, in: .board) == nil else {
++                result.failures[source.id] = NSLocalizedString("目标表情已改变，请先检查板上内容", comment: "migration target conflict")
++                continue
++            }
++            let cursor = BoardFaceSaveSource(boardID: physicalID,
++                                              generation: connection.connectionGeneration,
++                                              expectedBootId: connection.bootId,
++                                              expectedGen: connection.currentFacesGeneration)
++            switch await save(payload, source: cursor, createOnly: true, connection: connection) {
++            case .saved: result.succeededIDs.append(source.id)
++            case .pending, .failed:
++                result.failures[source.id] = errorMessage ?? NSLocalizedString("结果待确认", comment: "migration save pending")
++                // Keep the same deterministic target on the next explicit run.
++                report(result, action: .copy)
++                return result
++            }
++        }
++        report(result, action: .copy)
++        return result
++    }
++
+     // MARK: Helpers
+ 
+     /// A physical identity takes precedence over a link session. When either
+diff --git a/ios/RinaBoard/Features/Faces/FaceLibraryView.swift b/ios/RinaBoard/Features/Faces/FaceLibraryView.swift
+index d6f30fa..09c2d54 100644
+--- a/ios/RinaBoard/Features/Faces/FaceLibraryView.swift
++++ b/ios/RinaBoard/Features/Faces/FaceLibraryView.swift
+@@ -2,24 +2,9 @@ import SwiftUI
+ import UniformTypeIdentifiers
+ import RinaCore
+ 
+-/// Full saved-face management (design guide §11): the complete list with
+-/// rename, edit, delete, drag reorder and whole-document import/export.
+-///
+-/// Two independent libraries — 本机 (device-local) and 当前面板 (the
+-/// connected board) — are shown one at a time via a picker; each face row's
+-/// caption says whether it is a preset or a user face. Native list semantics
+-/// throughout — rows are `List` rows with swipe actions and a context menu,
+-/// plus a real `EditButton()`/`EditMode` for reordering and batch delete, not
+-/// website-style cards. Presented as a bottom sheet from the Control tab's
+-/// 「保存列表」 button (see `ControlView.savedFacesSheet`, which keeps the
+-/// glass `.rinaTall` presentation detent for this view).
+-///
+-/// A row's local management actions (edit, rename, delete, reorder) never
+-/// depend on the board connection — only 发送 (apply to the board's display)
+-/// does. Editing routes through `FaceLibraryModel.requestEdit`, which
+-/// `RootTabView` picks up as `pendingEditRequest` and hands to the Control
+-/// tab's editor, so this view never needs a direct `ControlViewModel`
+-/// dependency.
++/// The connected board's confirmed saved faces: rename, edit, delete, reorder,
++/// import/export, and an explicit copy flow for preserved legacy local data.
++/// Editing hands a board-scoped snapshot to Control through `requestEdit`.
+ struct FaceLibraryView: View {
+     @Environment(BoardConnection.self) private var connection
+     @Environment(FaceLibraryModel.self) private var model
+@@ -33,16 +18,18 @@ struct FaceLibraryView: View {
+     @State private var orderDraft: [SavedFace]?
+     @State private var orderLocation: FaceLibraryLocation?
+     @State private var orderGeneration: UUID?
++    @State private var orderCursor: BoardFaceSaveSource?
+     @State private var isWorking = false
+     @State private var searchText = ""
+-    @State private var pickedLocation: FaceLibraryLocation?
++    @State private var isMigratingLegacy = false
+     @State private var renaming: RenameTarget?
+     @State private var deletion: DeleteTarget?
+     @State private var showDeleteConfirmation = false
+     @State private var isExporting = false
+     @State private var isImporting = false
+-    @State private var importLocation: FaceLibraryLocation = .local
++    @State private var importLocation: FaceLibraryLocation = .board
+     @State private var importGeneration: UUID?
++    @State private var importCursor: BoardFaceSaveSource?
+     @State private var exportDocument: JSONFileDocument?
+     @State private var numbers = FaceNumberRegistry.shared
+ 
+@@ -50,12 +37,14 @@ struct FaceLibraryView: View {
+         let face: SavedFace
+         let location: FaceLibraryLocation
+         let generation: UUID
++        let cursor: BoardFaceSaveSource
+         var id: String { "\(location.rawValue):\(face.id)" }
+     }
+     private struct DeleteTarget {
+         let faces: [SavedFace]
+         let location: FaceLibraryLocation
+         let generation: UUID
++        let cursor: BoardFaceSaveSource
+     }
+     private struct LoadKey: Equatable {
+         let location: FaceLibraryLocation
+@@ -66,38 +55,18 @@ struct FaceLibraryView: View {
+         let ids: [String]
+     }
+ 
+-    /// "Which library is on screen" as one piece of state: `nil` means the
+-    /// user hasn't picked yet, so it follows the connection (board while
+-    /// connected, local otherwise). Once the user touches the picker their
+-    /// choice sticks for the life of the sheet, independent of connection
+-    /// changes.
+-    private var location: FaceLibraryLocation {
+-        pickedLocation ?? (connection.connectionState == .connected ? .board : .local)
+-    }
++    /// Formal saved faces always belong to the currently verified board.
++    private var location: FaceLibraryLocation { .board }
+     private var isConnected: Bool { connection.connectionState == .connected }
+     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+-    private var confirmedFaces: [SavedFace] { model.faces(in: location) }
++    private var confirmedFaces: [SavedFace] { libraryReady ? model.faces(in: .board) : [] }
+     private var displayedFaces: [SavedFace] { orderDraft ?? confirmedFaces }
+-    /// Loading flag for whichever library is on screen — `model.isLoading`
+-    /// only tracks the board fetch, so the local branch needs its own flag
+-    /// to avoid a spurious "暂无" flash while `loadLocalIfNeeded()` is
+-    /// still running.
+-    private var isLoading: Bool {
+-        location == .local ? (model.isLocalLoading || !model.isLocalLoaded) : model.isLoading
+-    }
+-    /// Proof (not a guess) that the current library actually finished a
+-    /// successful load, so management actions are safe to allow.
++    private var isLoading: Bool { model.isLoading }
+     private var libraryReady: Bool {
+-        if location == .local { return model.isLocalLoaded }
+-        return isConnected && model.boardGeneration == connection.connectionGeneration
++        isConnected && model.boardGeneration == connection.connectionGeneration
+     }
+-    /// Display-number scope: "local" or the connected board's physical id.
+-    /// `nil` when there is no stable board id to scope by — display numbers
+-    /// are then simply not allocated or shown for the session (the row still
+-    /// shows "顺序 N"), rather than persisting numbers under a
+-    /// reconnect-unstable session key.
++    /// Display numbers are scoped to a verified physical board identity.
+     private var currentScope: String? {
+-        if location == .local { return "local" }
+         guard let boardID = model.boardID ?? connection.boardKey else { return nil }
+         return "board:\(boardID)"
+     }
+@@ -114,11 +83,15 @@ struct FaceLibraryView: View {
+ 
+     private var managementMenu: some View {
+         Menu {
++            Button("从旧本机库复制…", systemImage: "tray.and.arrow.up") {
++                isMigratingLegacy = true
++            }.disabled(!canManage)
+             Button("导出全部", systemImage: "square.and.arrow.up") { exportAll() }
+                 .disabled(!libraryReady || confirmedFaces.isEmpty)
+             Button("导入表情列表", systemImage: "square.and.arrow.down") {
+                 importLocation = location
+                 importGeneration = connection.connectionGeneration
++                importCursor = currentCursor
+                 isImporting = true
+             }.disabled(!canManage)
+             Button("刷新", systemImage: "arrow.clockwise") {
+@@ -127,11 +100,6 @@ struct FaceLibraryView: View {
+                 perform { await refresh(source, connection: link) }
+             }
+             .disabled(!libraryReady)
+-            if location == .local, model.canUndoLocalDelete {
+-                Button("撤销删除", systemImage: "arrow.uturn.backward") {
+-                    perform { _ = await model.undoLocalDelete() }
+-                }
+-            }
+         } label: { Label("更多", systemImage: "ellipsis.circle") }
+         .disabled(isWorking || editMode.isEditing)
+     }
+@@ -151,12 +119,6 @@ struct FaceLibraryView: View {
+                     managementMenu
+                 }
+             }
+-            Picker("库", selection: Binding(get: { location }, set: { pickedLocation = $0 })) {
+-                ForEach(FaceLibraryLocation.allCases) { Text($0.title).tag($0) }
+-            }
+-            .rinaSegmentedRow()
+-            .disabled(editMode.isEditing || isWorking)
+-            .listRowSeparator(.hidden)
+ 
+             if let message = model.errorMessage {
+                 Section { Text(message).foregroundStyle(.red) }
+@@ -168,7 +130,7 @@ struct FaceLibraryView: View {
+                 Text("搜索结果不能排序；请先清除搜索")
+                     .font(.footnote).foregroundStyle(.secondary)
+             }
+-            if visible.isEmpty && !isLoading {
++            if visible.isEmpty && !isLoading && model.errorMessage == nil {
+                 Text(isSearching ? "没有匹配的表情" : "暂无")
+                     .foregroundStyle(.secondary)
+             }
+@@ -194,7 +156,7 @@ struct FaceLibraryView: View {
+             }
+         }
+         .listStyle(.insetGrouped)
+-        .navigationTitle("表情库")
++        .navigationTitle("板上表情")
+         .navigationBarTitleDisplayMode(.inline)
+         .modifier(FaceLibrarySearchPlacement(text: $searchText, inMenu: keepsActionsInMenu))
+         .toolbar {
+@@ -211,6 +173,7 @@ struct FaceLibraryView: View {
+                 orderDraft = confirmedFaces
+                 orderLocation = location
+                 orderGeneration = connection.connectionGeneration
++                orderCursor = currentCursor
+             } else if old.isEditing && !new.isEditing {
+                 commitOrder()
+             }
+@@ -233,12 +196,16 @@ struct FaceLibraryView: View {
+             model.errorMessage = nil
+         }
+         .task(id: LoadKey(location: location, generation: connection.connectionGeneration)) {
+-            if location == .local {
+-                await model.loadLocalIfNeeded()
+-            } else if isConnected && model.boardGeneration != connection.connectionGeneration {
++            guard isConnected else { dismiss(); return }
++            if model.boardGeneration != connection.connectionGeneration {
+                 await model.reload(connection: connection)
+             }
+         }
++        .onChange(of: isConnected) { _, connected in if !connected { dismiss() } }
++        .onChange(of: connection.connectionGeneration) { _, _ in dismiss() }
++        .sheet(isPresented: $isMigratingLegacy) {
++            LegacyFaceMigrationView()
++        }
+         .task(id: NumberingKey(scope: currentScope, ids: confirmedFaces.map(\.id))) {
+             if let scope = currentScope {
+                 numbers.ensureNumbers(for: confirmedFaces.map(\.id), scope: scope)
+@@ -255,7 +222,7 @@ struct FaceLibraryView: View {
+         .sheet(item: $renaming) { target in
+             FaceNameEditorSheet(title: NSLocalizedString("重命名", comment: "rename saved face"),
+                                 initialName: model.displayName(for: target.face)) { name in
+-                guard valid(target.location, generation: target.generation) else { return changedBoardMessage }
++                guard valid(target.location, generation: target.generation), cursorStillCurrent(target.cursor) else { return changedBoardMessage }
+                 isWorking = true
+                 defer { isWorking = false }
+                 let succeeded = await model.rename(target.face, to: name, in: target.location, connection: connection)
+@@ -265,7 +232,7 @@ struct FaceLibraryView: View {
+         .confirmationDialog("删除表情？", isPresented: $showDeleteConfirmation,
+                             titleVisibility: .visible, presenting: deletion) { target in
+             Button("删除", role: .destructive) {
+-                guard valid(target.location, generation: target.generation) else {
++                guard valid(target.location, generation: target.generation), cursorStillCurrent(target.cursor) else {
+                     model.errorMessage = changedBoardMessage
+                     return
+                 }
+@@ -274,7 +241,10 @@ struct FaceLibraryView: View {
+                 // Done never submits a permutation that still names a
+                 // just-deleted id.
+                 cancelOrder()
+-                perform { _ = await model.delete(target.faces, from: target.location, connection: link) }
++                perform {
++                    guard cursorStillCurrent(target.cursor) else { model.errorMessage = changedBoardMessage; return }
++                    _ = await model.delete(target.faces, from: target.location, connection: link)
++                }
+             }
+             Button("取消", role: .cancel) {}
+         } message: { target in
+@@ -286,7 +256,7 @@ struct FaceLibraryView: View {
+         }
+         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json]) { result in
+             guard case .success(let url) = result else { return }
+-            guard valid(importLocation, generation: importGeneration) else {
++            guard valid(importLocation, generation: importGeneration), cursorStillCurrent(importCursor) else {
+                 model.errorMessage = changedBoardMessage
+                 return
+             }
+@@ -298,7 +268,11 @@ struct FaceLibraryView: View {
+             }
+             let target = importLocation
+             let link = connection
+-            perform { await model.importDocument(from: data, to: target, connection: link) }
++            let cursor = importCursor
++            perform {
++                guard cursorStillCurrent(cursor) else { model.errorMessage = changedBoardMessage; return }
++                await model.importDocument(from: data, to: target, connection: link)
++            }
+         }
+     }
+ 
+@@ -345,8 +319,6 @@ struct FaceLibraryView: View {
+                 rowContent
+             } else {
+                 // The row itself is never disabled as a whole when offline:
+-                // local management works without a board. Only 发送 and the
+-                // board-only copy action check `isConnected`.
+                 rowContent.contextMenu {
+                     if model.isProtected(face) {
+                         Button("编辑副本", systemImage: "pencil") { edit(face) }
+@@ -365,13 +337,6 @@ struct FaceLibraryView: View {
+                         let source = location; let link = connection
+                         perform { _ = await model.duplicate(face, from: source, connection: link) }
+                     }.disabled(!canManage)
+-                    if location == .local {
+-                        Button("复制到当前面板", systemImage: "arrow.turn.up.right") { copy(face) }
+-                            .disabled(!canManage || !isConnected)
+-                    } else {
+-                        Button("复制到本机", systemImage: "arrow.turn.up.right") { copy(face) }
+-                            .disabled(!canManage)
+-                    }
+                     if model.canDelete(face) {
+                         Divider()
+                         Button("删除", systemImage: "trash", role: .destructive) { prepareDelete([face]) }
+@@ -402,6 +367,14 @@ struct FaceLibraryView: View {
+     private var failedMessage: String {
+         NSLocalizedString("操作失败，请重试", comment: "saved face operation failed")
+     }
++    private var currentCursor: BoardFaceSaveSource {
++        BoardFaceSaveSource(boardID: connection.boardKey, generation: connection.connectionGeneration,
++                            expectedBootId: connection.bootId, expectedGen: connection.currentFacesGeneration)
++    }
++    private func cursorStillCurrent(_ cursor: BoardFaceSaveSource?) -> Bool {
++        guard let cursor else { return false }
++        return cursor == currentCursor
++    }
+     private func valid(_ source: FaceLibraryLocation, generation: UUID?) -> Bool {
+         source == .local || (isConnected && generation == connection.connectionGeneration
+                            && model.boardGeneration == generation)
+@@ -427,17 +400,11 @@ struct FaceLibraryView: View {
+     }
+     private func rename(_ face: SavedFace) {
+         guard canManage, !editMode.isEditing, !model.isProtected(face) else { return }
+-        renaming = RenameTarget(face: face, location: location, generation: connection.connectionGeneration)
+-    }
+-    private func copy(_ face: SavedFace) {
+-        let source = location
+-        let target: FaceLibraryLocation = source == .local ? .board : .local
+-        let link = connection
+-        perform { _ = await model.copy(face, from: source, to: target, connection: link) }
++        renaming = RenameTarget(face: face, location: location, generation: connection.connectionGeneration, cursor: currentCursor)
+     }
+     private func prepareDelete(_ faces: [SavedFace]) {
+         guard canManage, !faces.isEmpty else { return }
+-        deletion = DeleteTarget(faces: faces, location: location, generation: connection.connectionGeneration)
++        deletion = DeleteTarget(faces: faces, location: location, generation: connection.connectionGeneration, cursor: currentCursor)
+         showDeleteConfirmation = true
+     }
+     private func cancelOrder() {
+@@ -447,7 +414,7 @@ struct FaceLibraryView: View {
+     private func commitOrder() {
+         guard let draft = orderDraft, let source = orderLocation else { return }
+         let generation = orderGeneration
+-        guard valid(source, generation: generation) else {
++        guard valid(source, generation: generation), cursorStillCurrent(orderCursor) else {
+             cancelOrder(); model.errorMessage = changedBoardMessage; return
+         }
+         guard draft.map(\.id) != model.faces(in: source).map(\.id) else { cancelOrder(); return }
+@@ -456,7 +423,9 @@ struct FaceLibraryView: View {
+         // draft instead of showing an order that was never persisted.
+         guard !isWorking else { orderDraft = nil; orderLocation = nil; orderGeneration = nil; return }
+         let link = connection
++        let cursor = orderCursor
+         perform {
++            guard cursorStillCurrent(cursor) else { cancelOrder(); model.errorMessage = changedBoardMessage; return }
+             _ = await model.reorderFaces(draft, in: source, connection: link)
+             // The model retains its confirmed order on failure. Clearing the
+             // draft therefore rolls back the UI without an invented success.
+@@ -464,8 +433,7 @@ struct FaceLibraryView: View {
+         }
+     }
+     private func refresh(_ source: FaceLibraryLocation, connection: BoardConnection) async {
+-        if source == .local { await model.reloadLocal() }
+-        else { await model.reload(connection: connection) }
++        await model.reload(connection: connection)
+     }
+     private func exportAll() {
+         guard let data = model.exportData(faces: confirmedFaces, from: location) else {
+@@ -501,3 +469,74 @@ private struct FaceLibrarySearchPlacement: ViewModifier {
+         else { content.searchable(text: $text, prompt: "搜索表情") }
+     }
+ }
++
++
++/// The legacy store is visible only through this explicit connected-board copy
++/// flow. Its source snapshots remain intact regardless of cancellation/failure.
++private struct LegacyFaceMigrationView: View {
++    @Environment(BoardConnection.self) private var connection
++    @Environment(FaceLibraryModel.self) private var library
++    @Environment(\.dismiss) private var dismiss
++    @State private var faces: [SavedFace] = []
++    @State private var selected = Set<String>()
++    @State private var target: BoardFaceSaveSource?
++    @State private var loading = true
++    @State private var copying = false
++    @State private var message: String?
++
++    var body: some View {
++        NavigationStack {
++            List {
++                Section {
++                    Text("将选中的旧本机表情复制到当前面板。原文件会保留。")
++                        .foregroundStyle(.secondary)
++                }
++                if loading { ProgressView() }
++                if !loading && faces.isEmpty { Text("没有可复制的旧本机表情") }
++                ForEach(faces) { face in
++                    Button {
++                        if !selected.insert(face.id).inserted { selected.remove(face.id) }
++                    } label: {
++                        HStack {
++                            Text(face.name)
++                            Spacer()
++                            Image(systemName: selected.contains(face.id) ? "checkmark.circle.fill" : "circle")
++                        }
++                    }.disabled(copying)
++                }
++                if let message { Text(message).foregroundStyle(.secondary) }
++            }
++            .navigationTitle("复制旧本机表情")
++            .toolbar {
++                ToolbarItem(placement: .cancellationAction) {
++                    Button("关闭") { dismiss() }.disabled(copying)
++                }
++                ToolbarItem(placement: .confirmationAction) {
++                    Button("复制到当前面板") {
++                        guard let target else { return }
++                        copying = true
++                        Task {
++                            let result = await library.migrateLegacyFaces(
++                                faces.filter { selected.contains($0.id) }, to: target, connection: connection)
++                            message = library.operationMessage ?? library.errorMessage
++                            selected.subtract(result.succeededIDs)
++                            copying = false
++                        }
++                    }.disabled(copying || loading || selected.isEmpty)
++                }
++            }
++            .task {
++                target = BoardFaceSaveSource(boardID: connection.boardKey,
++                                              generation: connection.connectionGeneration)
++                faces = await library.legacyMigrationFaces()
++                message = library.errorMessage
++                loading = false
++            }
++            .onChange(of: connection.connectionState == .connected) { _, connected in
++                if !connected { dismiss() }
++            }
++            .onChange(of: connection.connectionGeneration) { _, _ in dismiss() }
++            .interactiveDismissDisabled(copying)
++        }
++    }
++}
+diff --git a/ios/RinaBoard/Services/BoardConnection.swift b/ios/RinaBoard/Services/BoardConnection.swift
+index 9f7dd4a..8e07a3d 100644
+--- a/ios/RinaBoard/Services/BoardConnection.swift
++++ b/ios/RinaBoard/Services/BoardConnection.swift
+@@ -79,6 +79,8 @@ public final class BoardConnection {
+     /// `requestReliable`, `send`, or `sendUnqueued`.
+     @ObservationIgnored public weak var outboundHook: BoardOutboundHook?
+     public private(set) var connectionGeneration = UUID()
++    /// Identifies the actual carrier, including a replacement during setup.
++    public var carrierGeneration: UUID { transportSessionID }
+     public private(set) var connectionState: BoardConnectionState = .disconnected {
+         didSet {
+             if connectionState != .connected && oldValue == .connected {
+@@ -139,6 +141,10 @@ public final class BoardConnection {
+     /// nil) before the first `get_info` round trip, or on firmware that
+     /// predates it — `supports(_:)` is `false` either way.
+     public private(set) var deviceInfoCaps: [String] = []
++    public var supportsPartsReferences: Bool { deviceInfoCaps.contains("faces_parts_v4") }
++    public var supportsConditionalFaceWrites: Bool { deviceInfoCaps.contains("faces_conditional_v1") }
++    public var currentFacesGeneration: Int? { facesGen }
++
+ 
+     /// `true` iff the last `get_info` reported `cap` (BOARD_GROUP_SPEC §1.1/§2).
+     /// Callers must check this before using any board-group command and never
+@@ -798,6 +804,8 @@ public final class BoardConnection {
+         // A generation only means anything within the carrier that reported it:
+         // another client may have mutated the document while we were away.
+         facesGen = nil
++        facesReadFlight?.task.cancel()
++        facesReadFlight = nil
+     }
+ 
+     /// Read a snapshot even when the firmware has no new events to publish.
+@@ -1289,17 +1297,52 @@ public final class BoardConnection {
+     /// each round-trip carries `FLAG_MORE` while more remain, at which point
+     /// the next request must include `{"offset":n,"gen":g}` so the board can
+     /// detect a concurrent mutation (HTTP 409-equivalent error) and restart.
++    // One verified document only. Reuse across carriers requires the same
++    // physical board AND boot id AND an explicit board-side gen confirmation.
++    private var facesMutationRevision: UInt64 = 0
++    private var verifiedFacesCache: (board: String, boot: String, gen: UInt32, data: Data)?
++    private var facesReadFlight: (id: UUID, generation: UUID, carrier: UUID?, task: Task<Data, Error>)?
++
+     public func getFaces() async throws -> Data {
++        try Task.checkCancellation()
++        let generation = connectionGeneration
++        let carrier = transportSessionID
++        if let flight = facesReadFlight, flight.generation == generation, flight.carrier == carrier {
++            let result = try await flight.task.value
++            try Task.checkCancellation()
++            try checkSubmission(generation: generation, carrier: carrier)
++            return result
++        }
++        let id = UUID()
++        let task = Task { @MainActor in try await self.downloadFaces() }
++        facesReadFlight = (id, generation, carrier, task)
++        defer { if facesReadFlight?.id == id { facesReadFlight = nil } }
++        let result = try await task.value
++        try Task.checkCancellation()
++        try checkSubmission(generation: generation, carrier: carrier)
++        return result
++    }
++
++    private func downloadFaces() async throws -> Data {
++        let mutationRevision = facesMutationRevision
+         let generation = connectionGeneration
+         let carrier = transportSessionID
+         var result = Data()
+         var offset = 0
+         var gen: UInt32?
+         var didRestart = false
++        var reusableCache = verifiedFacesCache.flatMap { cache in
++            deviceInfoCaps.contains("faces_conditional_read_v1") && cache.board == boardKey && cache.boot == bootId ? cache : nil
++        }
++        if let reusableCache { gen = reusableCache.gen }
+         while true {
+             try checkSubmission(generation: generation, carrier: carrier)
+             var payloadDict: [String: Any] = ["offset": offset]
+             if let gen { payloadDict["gen"] = gen }
++            if let reusableCache, offset == 0 {
++                payloadDict["ifUnchanged"] = true
++                payloadDict["bootId"] = reusableCache.boot
++            }
+             let payload = try JSONSerialization.data(withJSONObject: payloadDict)
+             do {
+                 // A1: each GET_FACES request/reply is its own one-frame
+@@ -1307,6 +1350,7 @@ public final class BoardConnection {
+                 // again with a higher offset", not "more frames on this seq".
+                 let frame = try await send(type: .getFaces, payload: payload, aggregateMore: false)
+                 try checkSubmission(generation: generation, carrier: carrier)
++                guard mutationRevision == facesMutationRevision else { throw CancellationError() }
+                 guard frame.payload.count >= 4 else { throw RinaTransportError.invalidResponse }
+                 let genBytes = [UInt8](frame.payload.prefix(4))
+                 let frameGen = UInt32(genBytes[0])
+@@ -1316,6 +1360,11 @@ public final class BoardConnection {
+                 if gen == nil { gen = frameGen }
+                 guard frameGen == gen else { throw RinaTransportError.invalidResponse }
+                 let page = frame.payload.suffix(from: frame.payload.index(frame.payload.startIndex, offsetBy: 4))
++                if page.isEmpty, !frame.isMore, offset == 0, let cache = reusableCache, frameGen == cache.gen {
++                    facesGen = Int(frameGen)
++                    return cache.data
++                }
++                reusableCache = nil
+                 guard page.count <= Self.maxFacesDocumentBytes - result.count else {
+                     throw RinaTransportError.invalidResponse
+                 }
+@@ -1328,6 +1377,7 @@ public final class BoardConnection {
+             } catch let error as RinaLinkError {
+                 if error.code == 409, !didRestart {
+                     didRestart = true
++                    reusableCache = nil
+                     result = Data()
+                     offset = 0
+                     gen = nil
+@@ -1341,7 +1391,12 @@ public final class BoardConnection {
+         // expectation stayed `nil` after every reload and the first mutation
+         // was declared in sync unconditionally.
+         try checkSubmission(generation: generation, carrier: carrier)
+-        if let gen { facesGen = Int(gen) }
++        if let gen {
++            facesGen = Int(gen)
++            if let boardKey, let bootId {
++                verifiedFacesCache = (boardKey, bootId, gen, result)
++            }
++        }
+         return result
+     }
+ 
+@@ -1611,7 +1666,11 @@ public final class BoardConnection {
+ 
+     public func saveFaces(document: FaceDocument) async throws {
+         let data = try document.encoded()
+-        _ = try await uploadBlob(kind: .faces, meta: [:], data: data)
++        let meta = try await faceWriteMetadata()
++        _ = try await uploadBlob(kind: .faces, meta: meta, data: data)
++        facesMutationRevision &+= 1
++        facesReadFlight = nil
++        facesGen = nil
+     }
+ 
+     // MARK: Incremental saved-face commands (§7.2)
+@@ -1639,8 +1698,10 @@ public final class BoardConnection {
+     }
+ 
+     @discardableResult
+-    public func faceUpsert(_ face: FaceUpsertPayload) async throws -> FaceOpReply {
+-        try await sendFaceOp(.faceUpsert(face: face))
++    public func faceUpsert(_ face: FaceUpsertPayload, createOnly: Bool = false,
++                           expectedBootId: String? = nil, expectedGen: Int? = nil) async throws -> FaceOpReply {
++        try await sendFaceOp(.faceUpsert(face: face), createOnly: createOnly,
++                             expectedBootId: expectedBootId, expectedGen: expectedGen)
+     }
+ 
+     @discardableResult
+@@ -1648,10 +1709,27 @@ public final class BoardConnection {
+         try await sendFaceOp(.facesClearUser)
+     }
+ 
+-    private func sendFaceOp(_ cmd: RinaCommand) async throws -> FaceOpReply {
+-        let payload = try cmd.encode()
++    private func faceWriteMetadata(expectedBootId: String? = nil, expectedGen: Int? = nil) async throws -> [String: Any] {
++        guard supportsConditionalFaceWrites else { return [:] }
++        if expectedBootId != nil || expectedGen != nil {
++            guard let expectedBootId, let expectedGen else { throw RinaTransportError.invalidResponse }
++            return ["expectedBootId": expectedBootId, "expectedGen": expectedGen]
++        }
++        if facesGen == nil { _ = try await getFaces() }
++        guard let bootId, let facesGen else { throw RinaTransportError.invalidResponse }
++        return ["expectedBootId": bootId, "expectedGen": facesGen]
++    }
++
++    private func sendFaceOp(_ cmd: RinaCommand, createOnly: Bool = false,
++                            expectedBootId: String? = nil, expectedGen: Int? = nil) async throws -> FaceOpReply {
+         let generation = connectionGeneration
+         let carrier = transportSessionID
++        let metadata = try await faceWriteMetadata(expectedBootId: expectedBootId, expectedGen: expectedGen)
++        try checkSubmission(generation: generation, carrier: carrier)
++        var object = try JSONSerialization.jsonObject(with: cmd.encode()) as? [String: Any] ?? [:]
++        object.merge(metadata) { _, new in new }
++        if createOnly && supportsConditionalFaceWrites { object["createOnly"] = true }
++        let payload = try JSONSerialization.data(withJSONObject: object)
+         let reply: FaceOpReply = try await commandPump.run { @MainActor in
+             try self.checkSubmission(generation: generation, carrier: carrier)
+             return try await self.transact(payload: payload) { payload in
+@@ -1661,6 +1739,11 @@ public final class BoardConnection {
+             }
+         }
+         try checkSubmission(generation: generation, carrier: carrier)
++        facesMutationRevision &+= 1
++        // A reader started before this mutation cannot confirm the post-write
++        // library. Existing waiters finish/cancel independently; new readers
++        // must start a fresh transaction rather than joining that older flight.
++        facesReadFlight = nil
+         // The reply's generation is the only evidence that nobody else mutated
+         // `saved_faces.json` between our read and this write. Without it — no
+         // `gen` field at all, or none observed for this carrier — there is no
+diff --git a/ios/RinaBoardTests/BoardFaceSaveIdentityTests.swift b/ios/RinaBoardTests/BoardFaceSaveIdentityTests.swift
+index 29baedb..6d1f3ef 100644
+--- a/ios/RinaBoardTests/BoardFaceSaveIdentityTests.swift
++++ b/ios/RinaBoardTests/BoardFaceSaveIdentityTests.swift
+@@ -23,8 +23,8 @@ final class BoardFaceSaveIdentityTests: XCTestCase {
+ 
+         let (connection, transport) = await connectedBoard(host: "rina.local")
+         transport.resetRecordedFrames()
+-        let outcome = await library.save(payload, source: editor.boardFaceSaveSource,
+-                                         connection: connection)
++        let outcome = try await saveWithReadback(payload, source: editor.boardFaceSaveSource,
++                                                 library: library, connection: connection, transport: transport)
+ 
+         XCTAssertEqual(outcome, .saved(id: "face-1"))
+         let command = try XCTUnwrap(transport.lastSent(type: .cmd))
+@@ -153,7 +153,8 @@ final class BoardFaceSaveIdentityTests: XCTestCase {
+         let payload1 = editor.upsertPayload(using: library)
+         XCTAssertEqual(payload1.id, "face-1")
+         transport1.resetRecordedFrames()
+-        let outcome1 = await library.save(payload1, source: editor.boardFaceSaveSource, connection: connection1)
++        let outcome1 = try await saveWithReadback(payload1, source: editor.boardFaceSaveSource,
++                                                   library: library, connection: connection1, transport: transport1)
+         XCTAssertEqual(outcome1, .saved(id: "face-1"))
+         let command1 = try XCTUnwrap(transport1.lastSent(type: .cmd))
+         let face1 = try XCTUnwrap(
+@@ -175,7 +176,8 @@ final class BoardFaceSaveIdentityTests: XCTestCase {
+         let payload2 = editor.upsertPayload(using: library)
+         XCTAssertEqual(payload2.id, "face-1")
+         transport2.resetRecordedFrames()
+-        let outcome2 = await library.save(payload2, source: editor.boardFaceSaveSource, connection: connection2)
++        let outcome2 = try await saveWithReadback(payload2, source: editor.boardFaceSaveSource,
++                                                   library: library, connection: connection2, transport: transport2)
+         XCTAssertEqual(outcome2, .saved(id: "face-1"))
+         let command2 = try XCTUnwrap(transport2.lastSent(type: .cmd))
+         let face2 = try XCTUnwrap(
+@@ -234,6 +236,25 @@ final class BoardFaceSaveIdentityTests: XCTestCase {
+         return connected
+     }
+ 
++    private func saveWithReadback(_ payload: FaceUpsertPayload, source: BoardFaceSaveSource?,
++                                  library: FaceLibraryModel, connection: BoardConnection,
++                                  transport: FakeRinaTransport) async throws -> FaceLibraryModel.SaveOutcome {
++        transport.automaticallyReplies = false
++        let save = Task { await library.save(payload, source: source, connection: connection) }
++        try await transport.waitForSent(type: .cmd, count: 1)
++        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 1])
++        try await transport.waitForSent(type: .getFaces, count: 1)
++        let frame = try XCTUnwrap(PackedFrame(hex94: payload.frameHex))
++        let stored = SavedFace(id: try XCTUnwrap(payload.id), name: payload.name,
++                               type: SavedFace.Kind(rawValue: payload.type) ?? .custom,
++                               frameBytes: frame.bytes.map(Int.init), order: 1, call: payload.call)
++        transport.replyToNext(type: .getFaces,
++                              payload: Data([1, 0, 0, 0]) + (try FaceDocument(faces: [stored]).encoded()))
++        let outcome = await save.value
++        transport.automaticallyReplies = true
++        return outcome
++    }
++
+     private func editableFace() -> SavedFace {
+         SavedFace(id: "face-1", name: "Editable", type: .custom,
+                   frameBytes: PackedFrame().bytes.map(Int.init), order: 1,
+diff --git a/ios/RinaBoardTests/FaceLibraryLoadEdgeTests.swift b/ios/RinaBoardTests/FaceLibraryLoadEdgeTests.swift
+index c62c706..43496f7 100644
+--- a/ios/RinaBoardTests/FaceLibraryLoadEdgeTests.swift
++++ b/ios/RinaBoardTests/FaceLibraryLoadEdgeTests.swift
+@@ -48,30 +48,18 @@ final class FaceLibraryLoadEdgeTests: XCTestCase {
+         XCTAssertEqual(outcome, .failed, "Saving must stay refused while the on-disk file is known partially unreadable")
+     }
+ 
+-    // MARK: reloadLocal must not publish a fallback before it is durably saved
+-
+-    /// `reloadLocal`'s no-file branch used to assign `localDocument` to the
+-    /// bundled defaults and only afterwards try to save them; if that save
+-    /// failed, memory had already been overwritten. It must build the
+-    /// candidate, persist it, and only then publish — so a failed save here
+-    /// leaves the previously loaded document untouched.
+-    func testReloadLocalNoFileBranchDoesNotPublishBeforeSaveSucceeds() async throws {
++    /// The retired local library is never seeded or rewritten just because
++    /// its source file is missing; only explicit board migration reads it.
++    func testReloadLocalMissingFileDoesNotCreateOrRewriteLegacyStore() async throws {
+         let original = FaceDocument(faces: [face(id: "orig", name: "Original", led: 3)])
+         let store = NilThenFailSaveLocalFaceStore(firstLoad: original)
+         let model = FaceLibraryModel(localStore: store)
+-
+         await model.loadLocalIfNeeded()
+-        XCTAssertTrue(model.isLocalLoaded)
+-        XCTAssertTrue(model.faces(in: .local).contains { $0.id == "orig" })
+-        let afterFirstLoad = model.localDocument
+-
+         await model.reloadLocal()
+-
+-        XCTAssertTrue(model.isLocalLoaded,
+-                      "A reload whose save failed must not un-load a previously trustworthy library")
+-        XCTAssertEqual(model.localDocument, afterFirstLoad,
+-                       "A reload whose save failed must not replace the in-memory document with the unsaved fallback")
+-        XCTAssertNotNil(model.errorMessage)
++        let writes = await store.saveCalls
++        XCTAssertEqual(writes, 0)
++        XCTAssertTrue(model.isLocalLoaded)
++        XCTAssertNil(model.errorMessage)
+     }
+ 
+     // MARK: LocalFaceStore itself
+@@ -176,6 +164,7 @@ private actor PartiallyUnreadableLocalFaceStore: LocalFaceStoring {
+ private actor NilThenFailSaveLocalFaceStore: LocalFaceStoring {
+     private let firstLoad: FaceDocument
+     private var loadCount = 0
++    private(set) var saveCalls = 0
+ 
+     init(firstLoad: FaceDocument) {
+         self.firstLoad = firstLoad
+@@ -187,6 +176,7 @@ private actor NilThenFailSaveLocalFaceStore: LocalFaceStoring {
+     }
+ 
+     func save(_ document: FaceDocument) async throws {
++        saveCalls += 1
+         throw NilThenFailSaveLocalFaceStoreError.saveFailed
+     }
+ }
+diff --git a/ios/RinaBoardTests/FaceLibraryLocalTests.swift b/ios/RinaBoardTests/FaceLibraryLocalTests.swift
+index 9edccdd..d577f04 100644
+--- a/ios/RinaBoardTests/FaceLibraryLocalTests.swift
++++ b/ios/RinaBoardTests/FaceLibraryLocalTests.swift
+@@ -77,7 +77,7 @@ final class FaceLibraryLocalTests: XCTestCase {
+     /// `frameBytes.map(UInt8.init)`, which traps on a value outside 0...255
+     /// that lenient decoding otherwise preserves (R08). It must return nil
+     /// instead, via `SavedFace.packedFrame`.
+-    func testBoardFaceFrameReturnsNilForOutOfRangeFrameBytes() async throws {
++    func testBoardReadRejectsOutOfRangeFrameBytesBeforePublication() async throws {
+         let model = FaceLibraryModel()
+         let connection = BoardConnection()
+         let transport = FakeRinaTransport()
+@@ -93,8 +93,9 @@ final class FaceLibraryLocalTests: XCTestCase {
+         let reloaded = await reloadTask.value
+         transport.automaticallyReplies = true
+ 
+-        XCTAssertTrue(reloaded)
+-        XCTAssertEqual(model.face(id: "bad", in: .board)?.frameBytes, [999])
++        XCTAssertFalse(reloaded)
++        XCTAssertNil(model.face(id: "bad", in: .board))
++        XCTAssertNotNil(model.errorMessage)
+         XCTAssertNil(model.boardFaceFrame(id: "bad", index: nil, generation: connection.connectionGeneration))
+         connection.disconnect()
+     }
+diff --git a/ios/RinaBoardTests/FaceLibraryOpsTests.swift b/ios/RinaBoardTests/FaceLibraryOpsTests.swift
+index 4042aa6..ac1238a 100644
+--- a/ios/RinaBoardTests/FaceLibraryOpsTests.swift
++++ b/ios/RinaBoardTests/FaceLibraryOpsTests.swift
+@@ -9,7 +9,7 @@ import RinaCore
+ /// validation.
+ @MainActor
+ final class FaceLibraryOpsTests: XCTestCase {
+-    func testLocalEditOverwritesSameIdAndKeepsCount() async throws {
++    func testEditorRefusesLegacyLocalOverwriteAndKeepsOriginal() async throws {
+         let store = OpsTestLocalFaceStore(document: FaceDocument())
+         let library = FaceLibraryModel(localStore: store)
+         let connection = BoardConnection()
+@@ -29,13 +29,13 @@ final class FaceLibraryOpsTests: XCTestCase {
+ 
+         let success = await editor.saveEditedFace(name: "Alpha Edited", asNew: false, to: .local,
+                                                   library: library, connection: connection)
+-        XCTAssertTrue(success)
+-        XCTAssertEqual(library.faces(in: .local).count, countBefore, "Overwriting must not add a new entry")
+-        XCTAssertEqual(library.face(id: id, in: .local)?.name, "Alpha Edited")
++        XCTAssertFalse(success)
++        XCTAssertEqual(library.faces(in: .local).count, countBefore)
++        XCTAssertEqual(library.face(id: id, in: .local)?.name, "Alpha")
+         XCTAssertEqual(editor.editingFaceId, id)
+     }
+ 
+-    func testSaveAsNewSucceedsWithNewIdAndKeepsOriginal() async throws {
++    func testEditorRefusesNewLegacyLocalSaveAndKeepsOriginal() async throws {
+         let store = OpsTestLocalFaceStore(document: FaceDocument())
+         let library = FaceLibraryModel(localStore: store)
+         let connection = BoardConnection()
+@@ -51,13 +51,13 @@ final class FaceLibraryOpsTests: XCTestCase {
+ 
+         let success = await editor.saveEditedFace(name: "A Copy", asNew: true, to: .local,
+                                                   library: library, connection: connection)
+-        XCTAssertTrue(success)
+-        XCTAssertNotEqual(editor.editingFaceId, originalID,
+-                          "asNew must not replace the id being edited")
++        XCTAssertFalse(success)
++        XCTAssertEqual(editor.editingFaceId, originalID,
++                       "An offline save must keep the original draft target")
+         XCTAssertEqual(library.face(id: originalID, in: .local)?.name, "Original",
+                        "The face being edited from must survive a save-as-new untouched")
+-        let newID = try XCTUnwrap(editor.editingFaceId)
+-        XCTAssertEqual(library.face(id: newID, in: .local)?.name, "A Copy")
++        XCTAssertEqual(library.userFaces(in: .local).count, 1)
++        XCTAssertNotNil(library.errorMessage)
+     }
+ 
+     func testSaveAsNewFailureLeavesEditingTargetUntouched() async throws {
+@@ -439,37 +439,50 @@ final class FaceLibraryOpsTests: XCTestCase {
+     /// that rename land, so it is not a foreign edit. The overwrite must
+     /// still land the new drawing and the name given to this save.
+     func testSaveEditedFaceAfterSameSessionRenameSucceedsWithNewDrawingAndName() async throws {
+-        let store = OpsTestLocalFaceStore(document: FaceDocument())
+-        let library = FaceLibraryModel(localStore: store)
+-        let connection = BoardConnection()
+-        await library.loadLocalIfNeeded()
+-
+-        guard case .saved(let id?) = await library.saveLocal(payload(name: "Alpha", led: 1)),
+-              let created = library.face(id: id, in: .local) else {
+-            return XCTFail("Expected a locally saved face")
+-        }
+-
+-        let editor = ControlViewModel()
+-        editor.loadForEditing(FaceEditRequest(id: 1, face: created, location: .local,
+-                                              asCopy: false, boardID: nil, boardGeneration: nil))
+-        XCTAssertTrue(editor.canOverwriteEditingFace)
+-
+-        // Renamed elsewhere in this same session — the editor's own
+-        // `editingBaseline` still says "Alpha", untouched by this call.
+-        let renamed = await library.rename(created, to: "Alpha Renamed", in: .local, connection: connection)
++        let library = FaceLibraryModel()
++        let (connection, transport) = await connectedBoard()
++        defer { connection.disconnect() }
++        var initial = PackedFrame()
++        initial.set(1)
++        let created = SavedFace(id: "owned-rename", name: "Alpha", type: .custom,
++                                frameBytes: initial.bytes.map(Int.init), order: 1)
++        transport.automaticallyReplies = false
++        transport.resetRecordedFrames()
++        let loading = Task { await library.reload(connection: connection) }
++        try await transport.waitForSent(type: .getFaces, count: 1)
++        transport.replyToNext(type: .getFaces,
++                              payload: genPrefix(5) + (try FaceDocument(faces: [created]).encoded()))
++        let loaded = await loading.value
++        XCTAssertTrue(loaded)
++        let editor = ControlViewModel(draftStorage: DraftStorage(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
++        editor.livePreview = false
++        editor.connectionChanged(generation: connection.connectionGeneration)
++        editor.loadForEditing(FaceEditRequest(id: 1, face: created, location: .board,
++                                              asCopy: false, boardID: connection.boardKey,
++                                              boardGeneration: connection.connectionGeneration))
++        let renaming = Task { await library.rename(created, to: "Alpha Renamed", in: .board, connection: connection) }
++        try await transport.waitForSent(type: .cmd, count: 1)
++        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 6])
++        let renamed = await renaming.value
+         XCTAssertTrue(renamed)
+-
+-        // The user then actually draws something new in the editor.
+         editor.toggle(led: 5, connection: connection)
+-        XCTAssertTrue(editor.draftFrame[5])
+-
+-        let success = await editor.saveEditedFace(name: "Alpha Final", asNew: false, to: .local,
+-                                                  library: library, connection: connection)
+-        XCTAssertTrue(success, "A same-session rename must not be treated as a foreign edit")
+-        let stored = library.face(id: id, in: .local)
+-        XCTAssertEqual(stored?.name, "Alpha Final", "The stored name must be the one given to this save")
+-        XCTAssertEqual(stored?.frameBytes, editor.draftFrame.bytes.map(Int.init),
+-                       "The stored frame must be the new drawing, not the pre-edit one")
++        let saving = Task { await editor.saveEditedFace(name: "Alpha Final", asNew: false, to: .board,
++                                                        library: library, connection: connection) }
++        try await transport.waitForSent(type: .cmd, count: 2)
++        let command = try XCTUnwrap(transport.lastSent(type: .cmd))
++        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: command.payload) as? [String: Any])
++        let sent = try XCTUnwrap(object["face"] as? [String: Any])
++        XCTAssertEqual((sent["expect"] as? [String: Any])?["name"] as? String, "Alpha Renamed")
++        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 7])
++        try await transport.waitForSent(type: .getFaces, count: 2)
++        let stored = SavedFace(id: created.id, name: "Alpha Final", type: .custom,
++                               frameBytes: editor.draftFrame.bytes.map(Int.init), order: 1)
++        transport.replyToNext(type: .getFaces,
++                              payload: genPrefix(7) + (try FaceDocument(faces: [stored]).encoded()))
++        let success = await saving.value
++        XCTAssertTrue(success)
++        XCTAssertEqual(library.face(id: created.id, in: .board)?.name, "Alpha Final")
++        XCTAssertEqual(library.face(id: created.id, in: .board)?.packedFrame, editor.draftFrame)
+     }
+ 
+     /// The board's reply to a `face_upsert` can be lost after the write
+diff --git a/ios/RinaBoardTests/FaceLibrarySortCacheTests.swift b/ios/RinaBoardTests/FaceLibrarySortCacheTests.swift
+index d455537..f598a96 100644
+--- a/ios/RinaBoardTests/FaceLibrarySortCacheTests.swift
++++ b/ios/RinaBoardTests/FaceLibrarySortCacheTests.swift
+@@ -175,15 +175,31 @@ final class FaceLibrarySortCacheTests: XCTestCase {
+         XCTAssertTrue(reordered)
+         assertCacheMatchesReference(model, in: .board)
+         XCTAssertEqual(model.faces(in: .board).map(\.id), ["d1", "u1", "u2"])
++        model.requestEdit(model.face(id: "u2", in: .board)!, location: .board,
++                           connectionGeneration: connection.connectionGeneration)
++        XCTAssertEqual(model.pendingEditRequest?.expectedGen, 3,
++                       "A new editor starts from the confirmed post-reorder generation")
+ 
+-        // Upsert an existing id (in-place: `faceDocument.faces[index].name = ...`
+-        // plus frame/type/updatedAt/call, without a full `reload`).
++        // Upserts are published only after matching GET_FACES readback.
+         var frameU2Updated = PackedFrame()
+         frameU2Updated.set(9)
+-        let saveOutcome = await model.save(
++        var readback = model.faceDocument
++        let u2Index = try XCTUnwrap(readback.faces.firstIndex { $0.id == "u2" })
++        readback.faces[u2Index].name = "U2 Updated"
++        readback.faces[u2Index].frameBytes = frameU2Updated.bytes.map(Int.init)
++        transport.automaticallyReplies = false
++        transport.resetRecordedFrames()
++        let saving = Task { await model.save(
+             FaceUpsertPayload(id: "u2", name: "U2 Updated", type: "custom", frameHex: frameU2Updated.hex94),
+             connection: connection
+-        )
++        ) }
++        try await transport.waitForSent(type: .cmd, count: 1)
++        transport.replyToNext(type: .cmd, json: ["ok": true, "gen": 4])
++        try await transport.waitForSent(type: .getFaces, count: 1)
++        transport.replyToNext(type: .getFaces, payload: Data([4, 0, 0, 0]) + (try readback.encoded()))
++        let saveOutcome = await saving.value
++        transport.nextCommandGen = 5
++        transport.automaticallyReplies = true
+         XCTAssertEqual(saveOutcome, .saved(id: "u2"))
+         assertCacheMatchesReference(model, in: .board)
+         XCTAssertEqual(model.face(id: "u2", in: .board)?.name, "U2 Updated")
+diff --git a/ios/RinaBoardUITests/AcceptanceUITests.swift b/ios/RinaBoardUITests/AcceptanceUITests.swift
+index e1873c0..5d67dff 100644
+--- a/ios/RinaBoardUITests/AcceptanceUITests.swift
++++ b/ios/RinaBoardUITests/AcceptanceUITests.swift
+@@ -29,7 +29,7 @@ final class AcceptanceUITests: XCTestCase {
+             + deterministicLaunchArguments + extra
+         app.launch()
+         let ready = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+-            app.tabBars.firstMatch.exists || app.buttons["lightbulb.fill"].firstMatch.exists
++            app.descendants(matching: .any)["app.content"].firstMatch.exists
+         }, object: app)
+         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
+         XCTAssertTrue(app.alerts.firstMatch.waitForNonExistence(timeout: 10),
+@@ -55,20 +55,35 @@ final class AcceptanceUITests: XCTestCase {
+     }
+ 
+     private func mainTab(at index: Int) -> XCUIElement {
+-        if !app.tabBars.firstMatch.exists {
+-            let identifiers = ["lightbulb.fill", "t.square.fill", "waveform", "music.note", "gearshape.fill"]
+-            return app.buttons[identifiers[index]].firstMatch
+-        }
+-        return app.tabBars.buttons.element(boundBy: index)
++        let identifiers = ["tab.control", "tab.text", "tab.lipSync", "tab.presetLive", "tab.settings"]
++        let identified = app.buttons[identifiers[index]].firstMatch
++        if identified.exists { return identified }
++        if app.tabBars.firstMatch.exists { return app.tabBars.buttons.element(boundBy: index) }
++        // Duo's native vertical rail exposes buttons without a TabBar node.
++        let labels = [
++            ["表情显示", "表情顯示", "Expressions", "表情表示"],
++            ["文字滚动", "文字滾動", "Text", "文字スクロール"],
++            ["口型识别", "嘴形识别", "嘴型辨識", "Speak", "口形認識"],
++            ["演出", "Live", "ライブ"],
++            ["设定", "設定", "Settings"]
++        ]
++        return app.buttons.matching(NSPredicate(format: "label IN %@", labels[index])).firstMatch
++    }
++
++    func testRootContentMountsOnActiveDisplay() {
++        app.launchArguments = ["-initialTab", "control"] + deterministicLaunchArguments
++        app.launch()
++        let content = app.descendants(matching: .any)["app.content"].firstMatch
++        XCTAssertTrue(content.waitForExistence(timeout: 15), app.debugDescription)
+     }
+ 
+     func testFiveTabsRemainReachableOfflineAndAfterBackgroundReturn() {
+         launch()
+-        for tab in ["文字滚动", "口型识别", "演出", "设定", "表情显示"] {
+-            let item = app.tabBars.buttons[tab]
++        for index in [1, 2, 3, 4, 0] {
++            let item = mainTab(at: index)
+             XCTAssertTrue(item.waitForExistence(timeout: 3))
+             item.tap()
+-            XCTAssertTrue(item.isSelected, "The \(tab) tab did not become selected")
++            XCTAssertTrue(item.isSelected, "Tab \(index) did not become selected")
+         }
+         let clearFrame = app.buttons
+             .matching(NSPredicate(format: "label CONTAINS %@", "清空"))
+@@ -76,7 +91,7 @@ final class AcceptanceUITests: XCTestCase {
+         XCTAssertTrue(reach(clearFrame), "The restored Control commands were not reachable")
+         XCUIDevice.shared.press(.home)
+         app.activate()
+-        let control = app.tabBars.buttons["表情显示"]
++        let control = mainTab(at: 0)
+         XCTAssertTrue(control.waitForExistence(timeout: 5))
+         XCTAssertTrue(control.isSelected)
+     }
+@@ -120,7 +135,7 @@ final class AcceptanceUITests: XCTestCase {
+         }
+         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: restore)
+         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 3), .completed)
+-        let performance = app.tabBars.buttons["演出"]
++        let performance = mainTab(at: 3)
+         performance.tap()
+         XCTAssertTrue(performance.isSelected)
+         XCUIDevice.shared.press(.home)
+@@ -128,7 +143,7 @@ final class AcceptanceUITests: XCTestCase {
+         app.terminate()
+         app.launchArguments = ["-AppleLanguages", "(zh-Hans)"] + deterministicLaunchArguments
+         app.launch()
+-        let restoredPerformance = app.tabBars.buttons["演出"]
++        let restoredPerformance = mainTab(at: 3)
+         XCTAssertTrue(restoredPerformance.waitForExistence(timeout: 15))
+         XCTAssertTrue(restoredPerformance.isSelected)
+     }
+diff --git a/ios/RinaBoardUITests/BootAnimationRotationUITests.swift b/ios/RinaBoardUITests/BootAnimationRotationUITests.swift
+index 2715390..0a9b3f1 100644
+--- a/ios/RinaBoardUITests/BootAnimationRotationUITests.swift
++++ b/ios/RinaBoardUITests/BootAnimationRotationUITests.swift
+@@ -3,7 +3,7 @@ import UIKit
+ 
+ @MainActor
+ final class BootAnimationRotationUITests: XCTestCase {
+-    func testLoaderCoversWindowAcrossRotations() {
++    func testLoaderTracksWindowDuringOrientationRequests() {
+         continueAfterFailure = false
+         let app = XCUIApplication()
+         app.launchArguments = ["-initialTab", "control", "-bootMinimumDisplay", "45",
+@@ -18,6 +18,8 @@ final class BootAnimationRotationUITests: XCTestCase {
+         XCTAssertTrue(loader.waitForExistence(timeout: 10))
+         let initialWindow = app.windows.firstMatch.frame
+         // Duo's closed outer display intentionally remains portrait.
++        let isDuoInner = UIDevice.current.userInterfaceIdiom == .phone
++            && min(initialWindow.width, initialWindow.height) >= 600
+         let canRotate = UIDevice.current.userInterfaceIdiom == .pad
+             || min(initialWindow.width, initialWindow.height) >= 600
+         var orientations: [UIDeviceOrientation] = [.landscapeLeft, .landscapeRight]
+@@ -32,7 +34,10 @@ final class BootAnimationRotationUITests: XCTestCase {
+                 let window = app.windows.firstMatch.frame
+                 let frame = loader.frame
+                 let expectsLandscape = canRotate && (orientation == .landscapeLeft || orientation == .landscapeRight)
+-                guard (window.width > window.height) == expectsLandscape else { return false }
++                // Device Hub owns Duo's display rotation; XCUIDevice may
++                // update only its sensor. Real Duo rotations/folds are driven
++                // through Device Hub stress checks. iPad must actually rotate.
++                if !isDuoInner && (window.width > window.height) != expectsLandscape { return false }
+                 return abs(frame.width - window.width) < 2 && abs(frame.height - window.height) < 2
+             }
+             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: coversWindow, object: app)],
+diff --git a/tools/build_mac_wifi_bridge.sh b/tools/build_mac_wifi_bridge.sh
+index 8875c49..ee7fd15 100755
+--- a/tools/build_mac_wifi_bridge.sh
++++ b/tools/build_mac_wifi_bridge.sh
+@@ -5,8 +5,11 @@ set -euo pipefail
+ SOURCE="$SRCROOT/MacSupport/RinaMacWiFiBridge.swift"
+ PROTOCOL="$SRCROOT/RinaBoard/Services/MacWiFiBridgeProtocol.swift"
+ SCAN_POLICY="$SRCROOT/RinaBoard/Services/MacWiFiScanPolicy.swift"
+-BUNDLE="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/PlugIns/RinaMacWiFiBridge.bundle"
+-WORK="$DERIVED_FILE_DIR/mac-wifi-bridge"
++DESTINATION="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/PlugIns/RinaMacWiFiBridge.bundle"
++# Module caches and codesign temporary files require a writable subtree. Xcode's
++# script sandbox grants TEMP_DIR that access; declared outputs are literal paths.
++WORK="$TEMP_DIR/mac-wifi-bridge"
++BUNDLE="$WORK/RinaMacWiFiBridge.bundle"
+ mkdir -p "$BUNDLE/Contents/MacOS" "$WORK/modules"
+ SDK=$(xcrun --sdk macosx --show-sdk-path)
+ BINARIES=()
+@@ -32,3 +35,12 @@ PLIST
+ if [ "${CODE_SIGNING_ALLOWED:-YES}" != NO ]; then
+     codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$BUNDLE"
+ fi
++
++# Publish only the final signed bytes to the explicitly declared output files.
++mkdir -p "$DESTINATION/Contents/MacOS"
++cp "$BUNDLE/Contents/MacOS/RinaMacWiFiBridge" "$DESTINATION/Contents/MacOS/RinaMacWiFiBridge"
++cp "$BUNDLE/Contents/Info.plist" "$DESTINATION/Contents/Info.plist"
++if [ "${CODE_SIGNING_ALLOWED:-YES}" != NO ]; then
++    mkdir -p "$DESTINATION/Contents/_CodeSignature"
++    cp "$BUNDLE/Contents/_CodeSignature/CodeResources" "$DESTINATION/Contents/_CodeSignature/CodeResources"
++fi
