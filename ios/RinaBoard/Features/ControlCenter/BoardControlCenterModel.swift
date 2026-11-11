@@ -360,7 +360,7 @@ final class BoardControlCenterModel {
             // Evicted by a later command with the same key; latest value wins.
         } catch {
             guard expectedConnectionEpoch == nil || expectedConnectionEpoch == connectionEpoch else { return }
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
             reconcile?(self)
         }
     }

@@ -259,7 +259,7 @@ final class FaceLibraryModel {
             isLocalLoaded = false
             errorMessage = String(
                 format: NSLocalizedString("无法读取本机表情库：%@", comment: "local face library load failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
         }
     }
@@ -324,7 +324,7 @@ final class FaceLibraryModel {
         } catch {
             errorMessage = String(
                 format: NSLocalizedString("无法读取本机表情库：%@", comment: "local face library load failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
         }
     }
@@ -390,7 +390,7 @@ final class FaceLibraryModel {
                   revision == boardLoadRevision else { return false }
             errorMessage = String(
                 format: NSLocalizedString("读取面板表情失败：%@", comment: "board face library load failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
             return false
         }
@@ -474,7 +474,7 @@ final class FaceLibraryModel {
             }
             errorMessage = String(
                 format: NSLocalizedString("应用失败：%@", comment: "apply saved face failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
             return false
         }
@@ -597,7 +597,7 @@ final class FaceLibraryModel {
             }
             return result
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
             return .failed
         }
     }
@@ -680,7 +680,7 @@ final class FaceLibraryModel {
             // its own reason. A 5xx or a transport error stays unconfirmed.
             if let linkError = error as? RinaLinkError,
                let code = linkError.code, (400..<500).contains(code) {
-                errorMessage = linkError.error
+                errorMessage = RinaErrorText.boardMessage(linkError.error, code: linkError.code)
                 return .failed
             }
             errorMessage = NSLocalizedString("结果待确认：请连接原面板后再次保存以核对", comment: "face save needs readback")
@@ -1146,9 +1146,17 @@ final class FaceLibraryModel {
 
     /// The file picker could not read the chosen file at all; previously this
     /// returned silently and looked like nothing had happened.
-    func reportImportUnreadable() {
-        errorMessage = NSLocalizedString("导入失败：无法读取所选文件",
-                                         comment: "face document import unreadable file")
+    func reportImportUnreadable(_ error: (any Error)? = nil) {
+        guard let error else {
+            errorMessage = NSLocalizedString("导入失败：无法读取所选文件",
+                                             comment: "face document import unreadable file")
+            return
+        }
+        errorMessage = String(
+            format: NSLocalizedString("导入失败：无法读取所选文件（%@）",
+                                      comment: "face document import unreadable file; argument is the reason"),
+            error.rinaUserMessage
+        )
     }
 
     func importDocument(from data: Data, to location: FaceLibraryLocation,
@@ -1158,8 +1166,14 @@ final class FaceLibraryModel {
         // reading data we already own, but an import is uploaded as a whole
         // document replacement, so a partial parse would silently discard the
         // user's faces. Refuse instead, and say how many entries were bad.
-        guard let parsed = try? FaceDocument.decodedForImport(jsonData: data) else {
-            errorMessage = NSLocalizedString("导入失败：文件格式无效", comment: "face document import invalid")
+        let parsed: (document: FaceDocument, skippedFaceCount: Int)
+        do {
+            parsed = try FaceDocument.decodedForImport(jsonData: data)
+        } catch {
+            errorMessage = String(
+                format: NSLocalizedString("导入失败：%@", comment: "face document import invalid; argument is the reason"),
+                error.rinaUserMessage
+            )
             return
         }
         if parsed.skippedFaceCount > 0 {
@@ -1208,7 +1222,7 @@ final class FaceLibraryModel {
                 guard boardStillShown(connection, since: revision) else { return }
                 errorMessage = String(
                     format: NSLocalizedString("同步失败：%@", comment: "face library sync failed"),
-                    error.localizedDescription
+                    error.rinaUserMessage
                 )
             }
         }
@@ -1222,7 +1236,7 @@ final class FaceLibraryModel {
                 $0.type != .default && $0.packedFrame != nil
             } ?? []
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
             return []
         }
     }
@@ -1258,7 +1272,7 @@ final class FaceLibraryModel {
                                             frameHex: frame.hex94,
                                             call: source.type == .parts ? source.call : nil)
             guard await reload(connection: connection) else {
-                result.failures[source.id] = errorMessage ?? "Read failed"
+                result.failures[source.id] = errorMessage ?? NSLocalizedString("读取面板失败", comment: "migration board read failed")
                 break
             }
             if matchesSavedPayload(payload) {
@@ -1432,7 +1446,7 @@ final class FaceLibraryModel {
         } catch {
             errorMessage = String(
                 format: NSLocalizedString("无法保存本机表情库：%@", comment: "local face library save failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
             return false
         }
@@ -1463,7 +1477,7 @@ final class FaceLibraryModel {
                     "此表情已在别处被修改：请另存为新表情，或重新载入该表情后再改",
                     comment: "board overwrite target changed since it was loaded"
                 )
-                : linkError.error
+                : RinaErrorText.boardMessage(linkError.error, code: code)
             await reload(connection: connection)
             // `reload` clears `errorMessage` at entry and may set its own on
             // failure. The original rejection reason must not disappear
@@ -1476,7 +1490,7 @@ final class FaceLibraryModel {
         } else {
             errorMessage = String(
                 format: NSLocalizedString("同步失败：%@", comment: "face library sync failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
         }
     }

@@ -116,7 +116,7 @@ final class MultiBoardFaceSaveCoordinator {
             }
         } catch {
             journalReadFailed = true
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
         }
     }
 
@@ -134,7 +134,7 @@ final class MultiBoardFaceSaveCoordinator {
                 return false
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
             return false
         }
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -293,7 +293,7 @@ final class MultiBoardFaceSaveCoordinator {
     func finishIfConfirmed() async {
         guard allConfirmed, !isRunning else { return }
         do { try await storage.remove("multi_board_face_save"); operation = nil }
-        catch { errorMessage = error.localizedDescription }
+        catch { errorMessage = error.rinaUserMessage }
     }
 
     /// Explicitly ends the retained operation, confirmed or not, so unrelated
@@ -314,7 +314,7 @@ final class MultiBoardFaceSaveCoordinator {
             }
             try await storage.remove("multi_board_face_save")
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
             return false
         }
         operation = nil
@@ -337,7 +337,7 @@ final class MultiBoardFaceSaveCoordinator {
             errorMessage = nil
             return true
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
             return false
         }
     }

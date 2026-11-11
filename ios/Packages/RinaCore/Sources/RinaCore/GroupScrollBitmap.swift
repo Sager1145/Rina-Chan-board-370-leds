@@ -113,3 +113,24 @@ public enum GroupScrollBitmap {
         return ScrollBitmap(rows: rows, width: width)
     }
 }
+
+extension GroupScrollBitmap.BuildError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .emptyText:
+            return NSLocalizedString("请输入要滚动显示的文字", comment: "empty scroll text")
+        case .textTooLong:
+            return NSLocalizedString("文本超过 4096 字节", comment: "scroll text too long")
+        case .widthExceedsLimit(let width, let limit):
+            return String(
+                format: NSLocalizedString("滚动文字太宽（%lld 列，上限 %lld 列），请缩短文字", comment: "group scroll bitmap too wide: actual columns, limit"),
+                width, limit
+            )
+        case .tooManyFrames(let frameCount, let limit):
+            return String(
+                format: NSLocalizedString("生成帧数过多（%lld 帧，上限 %lld 帧），请缩短文字", comment: "group scroll has too many frames: actual, limit"),
+                frameCount, limit
+            )
+        }
+    }
+}

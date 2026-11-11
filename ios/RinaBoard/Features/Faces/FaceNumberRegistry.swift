@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import RinaCore
 
 /// App-local display numbers. The wire identity remains `SavedFace.id`.
 /// Shared on the main actor across all app windows. Numbers are scoped by
@@ -25,7 +26,10 @@ final class FaceNumberRegistry {
             ledger = decoded
         } catch {
             // A corrupt file must never silently renumber an existing library.
-            errorMessage = NSLocalizedString("无法读取表情编号；原始 ID 仍可使用", comment: "face number registry corrupt")
+            errorMessage = String(
+                format: NSLocalizedString("无法读取表情编号（%@）；原始 ID 仍可使用", comment: "face number registry corrupt; argument is the reason"),
+                error.rinaUserMessage
+            )
         }
     }
 
@@ -38,7 +42,10 @@ final class FaceNumberRegistry {
             defaults.set(data, forKey: key)
             ledger = candidate
         } catch {
-            errorMessage = NSLocalizedString("无法分配表情编号", comment: "face number allocation failed")
+            errorMessage = String(
+                format: NSLocalizedString("无法分配表情编号：%@", comment: "face number allocation failed; argument is the reason"),
+                error.rinaUserMessage
+            )
         }
     }
 

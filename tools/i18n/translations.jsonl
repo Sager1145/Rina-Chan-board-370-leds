@@ -1198,3 +1198,136 @@
 {"k": "请先打开 Mac Wi-Fi", "en": "Turn on Mac Wi-Fi first", "hant": "請先開啟 Mac Wi-Fi", "ja": "先に Mac の Wi-Fi をオンにしてください"}
 {"k": "失败 · %@", "en": "Failed · %@", "hant": "失敗 · %@", "ja": "失敗 · %@"}
 {"k": "%@ 充电中", "en": "%@ charging", "hant": "%@ 充電中", "ja": "%@ 充電中"}
+{"k": "字体文件格式无效", "en": "Invalid font file format", "hant": "字型檔案格式無效", "ja": "フォントファイルの形式が正しくありません"}
+{"k": "字体文件的字形表无效", "en": "The font file's glyph table is invalid", "hant": "字型檔案的字符表無效", "ja": "フォントファイルのグリフテーブルが無効です"}
+{"k": "滚动文字太宽（%lld 列，上限 %lld 列），请缩短文字", "en": "The scrolling text is too wide (%lld columns; limit: %lld columns). Shorten the text.", "hant": "跑馬燈文字太寬（%lld 列，上限 %lld 列），請縮短文字", "ja": "スクロールテキストの幅が広すぎます（%lld 列、上限 %lld 列）。テキストを短くしてください"}
+{"k": "生成帧数过多（%lld 帧，上限 %lld 帧），请缩短文字", "en": "Too many frames were generated (%lld frames; limit: %lld frames). Shorten the text.", "hant": "產生的影格數過多（%lld 影格，上限 %lld 影格），請縮短文字", "ja": "生成されたフレーム数が多すぎます（%lld フレーム、上限 %lld フレーム）。テキストを短くしてください"}
+{"k": "Live 脚本里没有任何关键帧", "en": "The Live script contains no keyframes", "hant": "Live 腳本裡沒有任何關鍵影格", "ja": "Live スクリプトにキーフレームがありません"}
+{"k": "Live 脚本第 %lld 行的帧率无效：%@", "en": "Invalid frame rate on line %lld of the Live script: %@", "hant": "Live 腳本第 %lld 行的影格率無效：%@", "ja": "Live スクリプトの %lld 行目のフレームレートが無効です：%@"}
+{"k": "Live 脚本第 %lld 行的关键帧格式无效：%@", "en": "Invalid keyframe format on line %lld of the Live script: %@", "hant": "Live 腳本第 %lld 行的關鍵影格格式無效：%@", "ja": "Live スクリプトの %lld 行目のキーフレームの形式が無効です：%@"}
+{"k": "Live 脚本第 %1$lld 行的%2$@部件不存在：%3$@", "en": "Line %1$lld of the Live script refers to a %2$@ part that does not exist: %3$@", "hant": "Live 腳本第 %1$lld 行的%2$@元件不存在：%3$@", "ja": "Live スクリプトの %1$lld 行目の%2$@パーツが存在しません：%3$@"}
+{"k": "Live 脚本第 %lld 行的帧号 %lld 没有比上一行大", "en": "On line %lld of the Live script, frame number %lld is not greater than the previous line's", "hant": "Live 腳本第 %lld 行的影格編號 %lld 沒有比上一行大", "ja": "Live スクリプトの %lld 行目のフレーム番号 %lld が前の行より大きくありません"}
+{"k": "Live 脚本第 %lld 行的帧号过大：%@", "en": "The frame number on line %lld of the Live script is too large: %@", "hant": "Live 腳本第 %lld 行的影格編號過大：%@", "ja": "Live スクリプトの %lld 行目のフレーム番号が大きすぎます：%@"}
+{"k": "没有输入画面数据", "en": "No frame data was entered", "hant": "尚未輸入畫面資料", "ja": "フレームデータが入力されていません"}
+{"k": "画面数据格式无效", "en": "Invalid frame data format", "hant": "畫面資料格式無效", "ja": "フレームデータの形式が正しくありません"}
+{"k": "画面数据需要 47 个整数，实际是 %lld 个", "en": "Frame data needs 47 integers, but %lld were given", "hant": "畫面資料需要 47 個整數，實際為 %lld 個", "ja": "フレームデータには整数が 47 個必要ですが、実際は %lld 個です"}
+{"k": "画面数据里的 %lld 超出了 0 到 255 的范围", "en": "The value %lld in the frame data is outside the range 0 to 255", "hant": "畫面資料中的 %lld 超出了 0 到 255 的範圍", "ja": "フレームデータ内の %lld が 0〜255 の範囲外です"}
+{"k": "应用内缺少资源文件 %@", "en": "The app is missing the resource file %@", "hant": "App 內缺少資源檔案 %@", "ja": "App 内にリソースファイル %@ がありません"}
+{"k": "单次发送的数据过大：%lld 字节，上限 %lld 字节", "en": "A single message is too large: %lld bytes; the limit is %lld bytes", "hant": "單次傳送的資料過大：%lld 位元組，上限 %lld 位元組", "ja": "1 回の送信データが大きすぎます：%lld バイト、上限 %lld バイト"}
+{"k": "拼接屏需要 1 到 5 块面板，当前是 %lld 块", "en": "A stitched display needs 1 to 5 boards; there are currently %lld", "hant": "拼接螢幕需要 1 到 5 塊面板，目前是 %lld 塊", "ja": "連結ディスプレイにはボードが 1〜5 台必要ですが、現在は %lld 台です"}
+{"k": "拼接屏的间隔数量不对：需要 %lld 个，实际是 %lld 个", "en": "Wrong number of stitched-display gaps: %lld needed, %lld given", "hant": "拼接螢幕的間隔數量不正確：需要 %lld 個，實際為 %lld 個", "ja": "連結ディスプレイの間隔の数が正しくありません：必要 %lld 個、実際 %lld 個"}
+{"k": "拼接屏第 %lld 个间隔无效：%lld（应在 0 到 8 之间）", "en": "Stitched-display gap %lld is invalid: %lld (must be between 0 and 8)", "hant": "拼接螢幕第 %lld 個間隔無效：%lld（應介於 0 到 8 之間）", "ja": "連結ディスプレイの %lld 番目の間隔が無効です：%lld（0〜8 である必要があります）"}
+{"k": "表情同步数据无效：%@", "en": "Invalid expression sync data: %@", "hant": "表情同步資料無效：%@", "ja": "表情の同期データが無効です：%@"}
+{"k": "表情库不属于当前账号或资料库", "en": "The expression library does not belong to the current account or library", "hant": "表情庫不屬於目前的帳號或資料庫", "ja": "表情ライブラリが現在のアカウントまたはライブラリのものではありません"}
+{"k": "表情同步记录冲突：相同编号的内容不一致", "en": "Expression sync record conflict: the same ID has different content", "hant": "表情同步記錄衝突：相同編號的內容不一致", "ja": "表情の同期記録が競合しています：同じ番号の内容が一致しません"}
+{"k": "表情同步缺少前序记录，请稍后重试", "en": "Expression sync is missing earlier records. Try again shortly.", "hant": "表情同步缺少先前的記錄，請稍後再試", "ja": "表情の同期に必要な以前の記録がありません。少し待ってから再試行してください"}
+{"k": "表情同步需要先恢复：%@", "en": "Expression sync needs to be recovered first: %@", "hant": "表情同步需要先復原：%@", "ja": "表情の同期は先に復旧が必要です：%@"}
+{"k": "表情已在别处被修改，请刷新后重试", "en": "The expression was modified elsewhere. Refresh and try again.", "hant": "表情已在別處被修改，請重新整理後再試一次", "ja": "表情が別の場所で変更されました。更新してからもう一度お試しください"}
+{"k": "表情已被删除", "en": "The expression has been deleted", "hant": "表情已被刪除", "ja": "表情は削除されています"}
+{"k": "表情库已满", "en": "The expression library is full", "hant": "表情庫已滿", "ja": "表情ライブラリがいっぱいです"}
+{"k": "面板上的表情库已变化，请重新读取", "en": "The expression library on the board has changed. Read it again.", "hant": "面板上的表情庫已變更，請重新讀取", "ja": "ボードの表情ライブラリが変更されました。もう一度読み込んでください"}
+{"k": "连接的不是这次同步的面板", "en": "The connected board is not the one this sync is for", "hant": "連線的不是這次同步的面板", "ja": "接続中のボードは、今回の同期対象のボードではありません"}
+{"k": "表情库版本比已同步的版本旧，已拒绝回退", "en": "The expression library version is older than the synced one, so the rollback was refused", "hant": "表情庫版本比已同步的版本舊，已拒絕回復舊版", "ja": "表情ライブラリのバージョンが同期済みのものより古いため、巻き戻しを拒否しました"}
+{"k": "表情库版本无法确定先后，请重新同步", "en": "The order of the expression library versions cannot be determined. Sync again.", "hant": "無法確定表情庫版本的先後，請重新同步", "ja": "表情ライブラリのバージョンの前後関係を判定できません。同期し直してください"}
+{"k": "同步会话已过期，请重新开始", "en": "The sync session has expired. Start again.", "hant": "同步工作階段已過期，請重新開始", "ja": "同期セッションの有効期限が切れました。最初からやり直してください"}
+{"k": "表情同步正在进行，请稍后重试", "en": "Expression sync is in progress. Try again shortly.", "hant": "表情同步正在進行，請稍後再試", "ja": "表情を同期中です。少し待ってから再試行してください"}
+{"k": "表情数据库出错：%@", "en": "Expression database error: %@", "hant": "表情資料庫發生錯誤：%@", "ja": "表情データベースのエラー：%@"}
+{"k": "导入失败：无法读取所选文件（%@）", "en": "Import failed: the selected file could not be read (%@)", "hant": "匯入失敗：無法讀取所選檔案（%@）", "ja": "読み込みに失敗しました：選択したファイルを読み込めません（%@）"}
+{"k": "导入失败：%@", "en": "Import failed: %@", "hant": "匯入失敗：%@", "ja": "読み込みに失敗しました：%@"}
+{"k": "读取面板失败", "en": "Could not read from the board", "hant": "讀取面板失敗", "ja": "ボードを読み取れませんでした"}
+{"k": "表情编号记录已损坏", "en": "The expression number record is corrupted", "hant": "表情編號記錄已損毀", "ja": "表情番号の記録が壊れています"}
+{"k": "表情编号已用尽", "en": "No expression numbers are left", "hant": "表情編號已用盡", "ja": "表情番号を使い切りました"}
+{"k": "无法读取表情编号（%@）；原始 ID 仍可使用", "en": "Couldn't read expression numbers (%@); the original IDs still work", "hant": "無法讀取表情編號（%@）；原始 ID 仍可使用", "ja": "表情番号を読み込めませんでした（%@）。元の ID は引き続き使用できます"}
+{"k": "无法分配表情编号：%@", "en": "Couldn't assign an expression number: %@", "hant": "無法分配表情編號：%@", "ja": "表情番号を割り当てられませんでした：%@"}
+{"k": "视频无法播放", "en": "The video cannot be played", "hant": "影片無法播放", "ja": "ビデオを再生できません"}
+{"k": "蓝牙连接失败", "en": "Bluetooth connection failed", "hant": "藍牙連線失敗", "ja": "Bluetooth 接続に失敗しました"}
+{"k": "这台设备没有提供璃奈板的蓝牙服务", "en": "This device does not offer the Rina board Bluetooth service", "hant": "這台裝置未提供璃奈板的藍牙服務", "ja": "このデバイスは璃奈ちゃんボードの Bluetooth サービスを提供していません"}
+{"k": "璃奈板的蓝牙服务不完整，请重新连接", "en": "The Rina board's Bluetooth service is incomplete. Reconnect and try again.", "hant": "璃奈板的藍牙服務不完整，請重新連線", "ja": "璃奈ちゃんボードの Bluetooth サービスが不完全です。接続し直してください"}
+{"k": "面板生成的滚动文字与本机不一致（面板 %lld 帧，本机 %lld 帧）", "en": "The scrolling text generated by the board does not match this device (board: %lld frames; this device: %lld frames)", "hant": "面板產生的跑馬燈文字與本機不一致（面板 %lld 影格，本機 %lld 影格）", "ja": "ボードが生成したスクロールテキストがこのデバイスと一致しません（ボード %lld フレーム、このデバイス %lld フレーム）"}
+{"k": "操作过于频繁，这次请求已被更新的请求取代", "en": "Too many operations in a short time; this request was replaced by a newer one", "hant": "操作過於頻繁，這次要求已被較新的要求取代", "ja": "操作が多すぎるため、このリクエストは新しいリクエストに置き換えられました"}
+{"k": "多板组最多只能有 %lld 块板", "en": "A board group can have at most %lld boards", "hant": "多板組最多只能有 %lld 塊板", "ja": "ボードグループに入れられるボードは最大 %lld 台です"}
+{"k": "这块板已经在多板组中", "en": "This board is already in the board group", "hant": "這塊板已經在多板組中", "ja": "このボードはすでにボードグループに入っています"}
+{"k": "找不到这个多板组，可能已被删除", "en": "This board group cannot be found; it may have been deleted", "hant": "找不到這個多板組，可能已被刪除", "ja": "このボードグループが見つかりません。削除された可能性があります"}
+{"k": "找不到要设置间隙的位置", "en": "The position of the gap to set cannot be found", "hant": "找不到要設定間隙的位置", "ja": "間隔を設定する位置が見つかりません"}
+{"k": "间隙 %lld 列超出范围，必须在 0 到 %lld 列之间", "en": "A gap of %lld columns is out of range; it must be between 0 and %lld columns", "hant": "間隙 %lld 列超出範圍，必須介於 0 到 %lld 列之間", "ja": "間隔 %lld 列は範囲外です。0〜%lld 列である必要があります"}
+{"k": "面板拒绝了连接，请确认地址和端口是否正确", "en": "The board refused the connection. Check that the address and port are correct.", "hant": "面板拒絕了連線，請確認位址和連接埠是否正確", "ja": "ボードが接続を拒否しました。アドレスとポートが正しいか確認してください"}
+{"k": "连接面板超时", "en": "Connecting to the board timed out", "hant": "連線面板逾時", "ja": "ボードへの接続がタイムアウトしました"}
+{"k": "无法访问面板，请确认本机和面板在同一网络", "en": "Cannot reach the board. Make sure this device and the board are on the same network.", "hant": "無法連上面板，請確認本機和面板在同一個網路", "ja": "ボードにアクセスできません。このデバイスとボードが同じネットワークにあることを確認してください"}
+{"k": "网络不可用，请检查 Wi-Fi 连接", "en": "The network is unavailable. Check your Wi-Fi connection.", "hant": "網路無法使用，請檢查 Wi-Fi 連線", "ja": "ネットワークを利用できません。Wi-Fi 接続を確認してください"}
+{"k": "与面板的网络连接已断开", "en": "The network connection to the board was lost", "hant": "與面板的網路連線已中斷", "ja": "ボードとのネットワーク接続が切断されました"}
+{"k": "网络错误：%@", "en": "Network error: %@", "hant": "網路錯誤：%@", "ja": "ネットワークエラー：%@"}
+{"k": "无法解析面板地址（%lld）", "en": "Cannot resolve the board's address (%lld)", "hant": "無法解析面板位址（%lld）", "ja": "ボードのアドレスを解決できません（%lld）"}
+{"k": "向面板发送数据超时", "en": "Sending data to the board timed out", "hant": "向面板傳送資料逾時", "ja": "ボードへのデータ送信がタイムアウトしました"}
+{"k": "发生未知错误：%@", "en": "An unknown error occurred: %@", "hant": "發生未知錯誤：%@", "ja": "不明なエラーが発生しました：%@"}
+{"k": "面板返回了未知错误", "en": "The board returned an unknown error", "hant": "面板傳回了未知錯誤", "ja": "ボードが不明なエラーを返しました"}
+{"k": "%1$@（%2$lld）：%3$@", "en": "%1$@ (%2$lld): %3$@", "hant": "%1$@（%2$lld）：%3$@", "ja": "%1$@（%2$lld）：%3$@"}
+{"k": "%1$@（%2$lld）", "en": "%1$@ (%2$lld)", "hant": "%1$@（%2$lld）", "ja": "%1$@（%2$lld）"}
+{"k": "%1$@：%2$@", "en": "%1$@: %2$@", "hant": "%1$@：%2$@", "ja": "%1$@：%2$@"}
+{"k": "面板拒绝了请求", "en": "The board rejected the request", "hant": "面板拒絕了要求", "ja": "ボードがリクエストを拒否しました"}
+{"k": "面板上找不到请求的内容", "en": "The board could not find the requested item", "hant": "面板上找不到要求的內容", "ja": "要求された項目がボードに見つかりません"}
+{"k": "面板状态已变化，请刷新后重试", "en": "The board's state has changed. Refresh and try again.", "hant": "面板狀態已變更，請重新整理後再試一次", "ja": "ボードの状態が変わりました。更新してからもう一度お試しください"}
+{"k": "发送的内容超出面板限制", "en": "The content sent exceeds the board's limit", "hant": "傳送的內容超出面板限制", "ja": "送信した内容がボードの上限を超えています"}
+{"k": "面板内部错误", "en": "Board internal error", "hant": "面板內部錯誤", "ja": "ボードの内部エラー"}
+{"k": "面板暂时无法处理请求", "en": "The board is temporarily unable to handle the request", "hant": "面板暫時無法處理要求", "ja": "ボードは現在リクエストを処理できません"}
+{"k": "面板内存不足", "en": "The board is out of memory", "hant": "面板記憶體不足", "ja": "ボードのメモリが不足しています"}
+{"k": "面板返回了错误", "en": "The board returned an error", "hant": "面板傳回了錯誤", "ja": "ボードがエラーを返しました"}
+{"k": "面板不支持指令 %@，请更新面板固件", "en": "The board does not support the command %@. Update the board firmware.", "hant": "面板不支援指令 %@，請更新面板韌體", "ja": "ボードはコマンド %@ に対応していません。ボードのファームウェアを更新してください"}
+{"k": "面板不支持这项功能，请更新面板固件", "en": "The board does not support this feature. Update the board firmware.", "hant": "面板不支援此功能，請更新面板韌體", "ja": "ボードはこの機能に対応していません。ボードのファームウェアを更新してください"}
+{"k": "面板无法解析收到的数据", "en": "The board could not parse the data it received", "hant": "面板無法解析收到的資料", "ja": "ボードが受信データを解析できませんでした"}
+{"k": "面板无法解析收到的数据：%@", "en": "The board could not parse the data it received: %@", "hant": "面板無法解析收到的資料：%@", "ja": "ボードが受信データを解析できませんでした：%@"}
+{"k": "发送过快，面板来不及处理，请稍后重试", "en": "Data is being sent faster than the board can handle. Try again shortly.", "hant": "傳送過快，面板來不及處理，請稍後再試", "ja": "送信が速すぎてボードの処理が追いつきません。少し待ってから再試行してください"}
+{"k": "单次发送的数据过大，面板无法接收", "en": "A single message was too large for the board to accept", "hant": "單次傳送的資料過大，面板無法接收", "ja": "1 回の送信データが大きすぎて、ボードが受信できません"}
+{"k": "面板的回复内容过大，无法发送", "en": "The board's reply was too large to send", "hant": "面板的回覆內容過大，無法傳送", "ja": "ボードの応答が大きすぎて送信できません"}
+{"k": "面板无法开始扫描 Wi-Fi，请稍后重试", "en": "The board could not start a Wi-Fi scan. Try again shortly.", "hant": "面板無法開始掃描 Wi-Fi，請稍後再試", "ja": "ボードが Wi-Fi のスキャンを開始できませんでした。少し待ってから再試行してください"}
+{"k": "Wi-Fi 名称或密码无效", "en": "Invalid Wi-Fi name or password", "hant": "Wi-Fi 名稱或密碼無效", "ja": "Wi-Fi 名またはパスワードが無効です"}
+{"k": "面板不支持这个模式", "en": "The board does not support this mode", "hant": "面板不支援此模式", "ja": "ボードはこのモードに対応していません"}
+{"k": "修改热点 IP 需要通过蓝牙连接面板", "en": "Changing the hotspot IP requires connecting to the board over Bluetooth", "hant": "修改熱點 IP 需要透過藍牙連線面板", "ja": "ホットスポット IP を変更するには、ボードに Bluetooth で接続する必要があります"}
+{"k": "热点设置无效或热点启动失败：IP 必须是私有网段的 IPv4 地址，且末位在 1 到 254 之间", "en": "The hotspot settings are invalid or the hotspot failed to start: the IP must be a private IPv4 address whose last octet is between 1 and 254", "hant": "熱點設定無效或熱點啟動失敗：IP 必須是私有網段的 IPv4 位址，且末位須介於 1 到 254 之間", "ja": "ホットスポットの設定が無効か、ホットスポットを起動できませんでした：IP はプライベートアドレス範囲の IPv4 アドレスで、末尾が 1〜254 である必要があります"}
+{"k": "这块面板的固件未启用蓝牙", "en": "Bluetooth is not enabled in this board's firmware", "hant": "這塊面板的韌體未啟用藍牙", "ja": "このボードのファームウェアでは Bluetooth が有効になっていません"}
+{"k": "面板名称过长，最多 %@ 字节", "en": "The board name is too long; the limit is %@ bytes", "hant": "面板名稱過長，最多 %@ 位元組", "ja": "ボード名が長すぎます。上限は %@ バイトです"}
+{"k": "面板名称包含无效字符", "en": "The board name contains invalid characters", "hant": "面板名稱包含無效字元", "ja": "ボード名に無効な文字が含まれています"}
+{"k": "提示灯编号无效，必须是 -1 或 0 到 %@", "en": "Invalid hint LED index; it must be -1 or between 0 and %@", "hant": "提示燈編號無效，必須是 -1 或 0 到 %@", "ja": "ヒント LED の番号が無効です。-1 または 0〜%@ である必要があります"}
+{"k": "镜像提示灯编号无效，必须是 -1 或 0 到 %@", "en": "Invalid mirrored hint LED index; it must be -1 or between 0 and %@", "hant": "鏡像提示燈編號無效，必須是 -1 或 0 到 %@", "ja": "ミラー側のヒント LED の番号が無効です。-1 または 0〜%@ である必要があります"}
+{"k": "颜色格式无效，需要 #RRGGBB", "en": "Invalid colour format; #RRGGBB is required", "hant": "顏色格式無效，需要 #RRGGBB", "ja": "カラーの形式が無効です。#RRGGBB で指定してください"}
+{"k": "面板存储不可用，请重启面板后重试", "en": "Board storage is unavailable. Restart the board and try again.", "hant": "面板儲存空間無法使用，請重新啟動面板後再試一次", "ja": "ボードのストレージを利用できません。ボードを再起動してからもう一度お試しください"}
+{"k": "面板上的表情库已被改动，请刷新后重试", "en": "The expression library on the board has been changed. Refresh and try again.", "hant": "面板上的表情庫已被更動，請重新整理後再試一次", "ja": "ボードの表情ライブラリが変更されました。更新してからもう一度お試しください"}
+{"k": "这个表情在面板上已被改动，请刷新后重试", "en": "This expression has been changed on the board. Refresh and try again.", "hant": "這個表情在面板上已被更動，請重新整理後再試一次", "ja": "この表情はボード上で変更されました。更新してからもう一度お試しください"}
+{"k": "传输过程中面板上的表情库发生了变化，请重试", "en": "The expression library on the board changed during the transfer. Try again.", "hant": "傳輸過程中面板上的表情庫發生了變化，請再試一次", "ja": "転送中にボードの表情ライブラリが変更されました。もう一度お試しください"}
+{"k": "面板已重启，请重新同步后重试", "en": "The board has restarted. Sync again, then retry.", "hant": "面板已重新啟動，請重新同步後再試一次", "ja": "ボードが再起動しました。同期し直してからもう一度お試しください"}
+{"k": "面板上的表情库文件无法读取", "en": "The expression library file on the board cannot be read", "hant": "無法讀取面板上的表情庫檔案", "ja": "ボードの表情ライブラリファイルを読み込めません"}
+{"k": "面板上的表情库文件已损坏：%@", "en": "The expression library file on the board is corrupted: %@", "hant": "面板上的表情庫檔案已損毀：%@", "ja": "ボードの表情ライブラリファイルが壊れています：%@"}
+{"k": "面板上的表情库暂时不可用，请稍后重试", "en": "The expression library on the board is temporarily unavailable. Try again shortly.", "hant": "面板上的表情庫暫時無法使用，請稍後再試", "ja": "ボードの表情ライブラリは一時的に利用できません。少し待ってから再試行してください"}
+{"k": "面板写入文件失败：%@", "en": "The board failed to write a file: %@", "hant": "面板寫入檔案失敗：%@", "ja": "ボードがファイルを書き込めませんでした：%@"}
+{"k": "面板无法创建表情库文件", "en": "The board could not create the expression library file", "hant": "面板無法建立表情庫檔案", "ja": "ボードが表情ライブラリファイルを作成できませんでした"}
+{"k": "面板表情库已满，最多保存 %@ 个表情", "en": "The board's expression library is full; it holds at most %@ expressions", "hant": "面板表情庫已滿，最多可儲存 %@ 個表情", "ja": "ボードの表情ライブラリがいっぱいです。保存できる表情は最大 %@ 個です"}
+{"k": "面板上的表情数量超出限制", "en": "The number of expressions on the board exceeds the limit", "hant": "面板上的表情數量超出限制", "ja": "ボード上の表情の数が上限を超えています"}
+{"k": "表情库过大，超出面板的容量限制", "en": "The expression library is too large for the board's capacity", "hant": "表情庫過大，超出面板的容量限制", "ja": "表情ライブラリが大きすぎて、ボードの容量を超えています"}
+{"k": "面板内存不足，无法处理表情库", "en": "The board is out of memory and cannot process the expression library", "hant": "面板記憶體不足，無法處理表情庫", "ja": "ボードのメモリが不足しているため、表情ライブラリを処理できません"}
+{"k": "面板上找不到表情 %@", "en": "Expression %@ was not found on the board", "hant": "面板上找不到表情 %@", "ja": "表情 %@ がボードに見つかりません"}
+{"k": "面板上找不到这个表情，可能已被删除", "en": "This expression was not found on the board; it may have been deleted", "hant": "面板上找不到這個表情，可能已被刪除", "ja": "この表情がボードに見つかりません。削除された可能性があります"}
+{"k": "面板上已有相同的表情", "en": "The same expression already exists on the board", "hant": "面板上已有相同的表情", "ja": "同じ表情がすでにボードにあります"}
+{"k": "默认表情不能重命名", "en": "Default expressions cannot be renamed", "hant": "預設表情無法重新命名", "ja": "デフォルトの表情は名前を変更できません"}
+{"k": "默认表情不能删除", "en": "Default expressions cannot be deleted", "hant": "預設表情無法刪除", "ja": "デフォルトの表情は削除できません"}
+{"k": "默认表情不能覆盖", "en": "Default expressions cannot be overwritten", "hant": "預設表情無法覆寫", "ja": "デフォルトの表情は上書きできません"}
+{"k": "面板上至少要保留一个默认表情", "en": "At least one default expression must remain on the board", "hant": "面板上至少要保留一個預設表情", "ja": "ボードにはデフォルトの表情を少なくとも 1 つ残す必要があります"}
+{"k": "表情名称不能为空，且不能超过 64 字节", "en": "The expression name cannot be empty or longer than 64 bytes", "hant": "表情名稱不可為空，且不可超過 64 位元組", "ja": "表情の名前は空にできず、64 バイト以内である必要があります"}
+{"k": "表情顺序与面板上的表情库不一致，请刷新后重试", "en": "The expression order does not match the board's expression library. Refresh and try again.", "hant": "表情順序與面板上的表情庫不一致，請重新整理後再試一次", "ja": "表情の並び順がボードの表情ライブラリと一致しません。更新してからもう一度お試しください"}
+{"k": "面板不支持这种表情类型", "en": "The board does not support this type of expression", "hant": "面板不支援這種表情類型", "ja": "ボードはこの種類の表情に対応していません"}
+{"k": "面板不支持这个版本的部件表情", "en": "The board does not support this version of parts-based expressions", "hant": "面板不支援此版本的元件表情", "ja": "ボードはこのバージョンのパーツ表情に対応していません"}
+{"k": "表情部件编号无效：%@", "en": "Invalid expression part ID: %@", "hant": "表情元件編號無效：%@", "ja": "表情パーツの番号が無効です：%@"}
+{"k": "表情部件编号无效", "en": "Invalid expression part ID", "hant": "表情元件編號無效", "ja": "表情パーツの番号が無効です"}
+{"k": "表情画面数据无效", "en": "Invalid expression frame data", "hant": "表情畫面資料無效", "ja": "表情のフレームデータが無効です"}
+{"k": "面板正在接收另一段滚动文字，请稍后重试", "en": "The board is receiving another scrolling text. Try again shortly.", "hant": "面板正在接收另一段跑馬燈文字，請稍後再試", "ja": "ボードは別のスクロールテキストを受信中です。少し待ってから再試行してください"}
+{"k": "这次滚动文字上传已被新的上传取代", "en": "This scrolling-text upload was replaced by a newer upload", "hant": "這次跑馬燈文字上傳已被新的上傳取代", "ja": "このスクロールテキストのアップロードは、新しいアップロードに置き換えられました"}
+{"k": "滚动文字过长，超出面板可接收的帧数", "en": "The scrolling text is too long; it exceeds the number of frames the board can accept", "hant": "跑馬燈文字過長，超出面板可接收的影格數", "ja": "スクロールテキストが長すぎて、ボードが受信できるフレーム数を超えています"}
+{"k": "文字内容过长，超出面板限制", "en": "The text is too long for the board's limit", "hant": "文字內容過長，超出面板限制", "ja": "テキストが長すぎて、ボードの上限を超えています"}
+{"k": "面板内存不足，无法接收滚动文字", "en": "The board is out of memory and cannot receive the scrolling text", "hant": "面板記憶體不足，無法接收跑馬燈文字", "ja": "ボードのメモリが不足しているため、スクロールテキストを受信できません"}
+{"k": "面板保存滚动文字失败", "en": "The board failed to save the scrolling text", "hant": "面板儲存跑馬燈文字失敗", "ja": "ボードがスクロールテキストを保存できませんでした"}
+{"k": "滚动文字的画面数据无效", "en": "Invalid scrolling-text frame data", "hant": "跑馬燈文字的畫面資料無效", "ja": "スクロールテキストのフレームデータが無効です"}
+{"k": "面板上没有可播放的滚动文字，请重新发送", "en": "There is no scrolling text to play on the board. Send it again.", "hant": "面板上沒有可播放的跑馬燈文字，請重新傳送", "ja": "ボードに再生できるスクロールテキストがありません。もう一度送信してください"}
+{"k": "数据上传中断，请重试", "en": "The data upload was interrupted. Try again.", "hant": "資料上傳中斷，請再試一次", "ja": "データのアップロードが中断されました。もう一度お試しください"}
+{"k": "数据无法解析：缺少字段 %@", "en": "The data could not be parsed: missing field %@", "hant": "無法解析資料：缺少欄位 %@", "ja": "データを解析できません：フィールド %@ がありません"}
+{"k": "数据无法解析：字段 %@ 没有值", "en": "The data could not be parsed: field %@ has no value", "hant": "無法解析資料：欄位 %@ 沒有值", "ja": "データを解析できません：フィールド %@ に値がありません"}
+{"k": "数据无法解析：字段 %@ 的类型不符", "en": "The data could not be parsed: field %@ has the wrong type", "hant": "無法解析資料：欄位 %@ 的類型不符", "ja": "データを解析できません：フィールド %@ の型が一致しません"}
+{"k": "数据无法解析：字段 %@ 的内容无效", "en": "The data could not be parsed: field %@ has invalid content", "hant": "無法解析資料：欄位 %@ 的內容無效", "ja": "データを解析できません：フィールド %@ の内容が無効です"}
+{"k": "数据无法解析：格式不正确", "en": "The data could not be parsed: incorrect format", "hant": "無法解析資料：格式不正確", "ja": "データを解析できません：形式が正しくありません"}

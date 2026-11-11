@@ -300,7 +300,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
                 let peripheral = targetPeripheral
                 clearConnectionTarget()
                 if let peripheral { cancelLink(peripheral) }
-                lastError = error.localizedDescription
+                lastError = RinaErrorText.message(for: error)
             }
             throw error
         }
@@ -515,7 +515,7 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
                 cancelLink(peripheral)
             }
             resumeWriteReady(.failure(error))
-            lastError = error.localizedDescription
+            lastError = RinaErrorText.message(for: error)
             logger.error("BLE connection failed: \(error.localizedDescription, privacy: .public)")
             continuation.resume(throwing: error)
         }
@@ -816,7 +816,7 @@ extension BLETransport: CBCentralManagerDelegate {
                 guard isConnectInProgress else { return }
                 handleBluetoothUnavailable(central.state)
             @unknown default:
-                emitState(.failed("bluetooth unavailable"))
+                emitState(.failed(bluetoothUnavailableMessage(central.state)))
             }
         }
     }
@@ -895,7 +895,8 @@ extension BLETransport: CBCentralManagerDelegate {
                 logger.notice("Ignoring stale didFailToConnect for \(peripheral.identifier.uuidString, privacy: .public)")
                 return
             }
-            let message = error?.localizedDescription ?? "connect failed"
+            let message = error.map { RinaErrorText.message(for: $0) }
+                ?? NSLocalizedString("蓝牙连接失败", comment: "Bluetooth connection failed without a system error")
             emitState(.failed(message))
             resumeConnect(.failure(RinaTransportError.underlying(message)))
         }
@@ -925,8 +926,8 @@ extension BLETransport: CBCentralManagerDelegate {
                 logger.info("BLE disconnected from \(identifier.uuidString, privacy: .public)")
             }
             emitState(.disconnected)
-            resumeConnect(.failure(error.map { RinaTransportError.underlying($0.localizedDescription) } ?? RinaTransportError.notConnected))
-            resumeWriteReady(.failure(error.map { RinaTransportError.underlying($0.localizedDescription) } ?? RinaTransportError.notConnected))
+            resumeConnect(.failure(error.map { RinaTransportError.underlying(RinaErrorText.message(for: $0)) } ?? RinaTransportError.notConnected))
+            resumeWriteReady(.failure(error.map { RinaTransportError.underlying(RinaErrorText.message(for: $0)) } ?? RinaTransportError.notConnected))
         }
     }
 }
@@ -960,11 +961,11 @@ extension BLETransport: CBPeripheralDelegate {
                 return
             }
             if let error {
-                resumeConnect(.failure(RinaTransportError.underlying(error.localizedDescription)))
+                resumeConnect(.failure(RinaTransportError.underlying(RinaErrorText.message(for: error))))
                 return
             }
             guard let service = peripheral.services?.first(where: { $0.uuid == serviceCBUUID }) else {
-                resumeConnect(.failure(RinaTransportError.underlying("RinaLink service not found")))
+                resumeConnect(.failure(RinaTransportError.underlying(NSLocalizedString("这台设备没有提供璃奈板的蓝牙服务", comment: "Bluetooth connection error: RinaLink GATT service not found"))))
                 return
             }
             logger.debug("RinaLink service discovered; requesting characteristics")
@@ -983,11 +984,11 @@ extension BLETransport: CBPeripheralDelegate {
                 return
             }
             if let error {
-                resumeConnect(.failure(RinaTransportError.underlying(error.localizedDescription)))
+                resumeConnect(.failure(RinaTransportError.underlying(RinaErrorText.message(for: error))))
                 return
             }
             guard let characteristics = service.characteristics else {
-                resumeConnect(.failure(RinaTransportError.underlying("RinaLink characteristics not found")))
+                resumeConnect(.failure(RinaTransportError.underlying(NSLocalizedString("璃奈板的蓝牙服务不完整，请重新连接", comment: "Bluetooth connection error: RinaLink GATT characteristics missing"))))
                 return
             }
             for characteristic in characteristics {
@@ -1005,7 +1006,7 @@ extension BLETransport: CBPeripheralDelegate {
                 }
             }
             guard rxCharacteristic != nil, txCharacteristic != nil else {
-                resumeConnect(.failure(RinaTransportError.underlying("RinaLink RX/TX characteristics missing")))
+                resumeConnect(.failure(RinaTransportError.underlying(NSLocalizedString("璃奈板的蓝牙服务不完整，请重新连接", comment: "Bluetooth connection error: RinaLink GATT characteristics missing"))))
                 return
             }
         }
@@ -1018,7 +1019,7 @@ extension BLETransport: CBPeripheralDelegate {
                 return
             }
             if let error {
-                resumeConnect(.failure(RinaTransportError.underlying(error.localizedDescription)))
+                resumeConnect(.failure(RinaTransportError.underlying(RinaErrorText.message(for: error))))
                 return
             }
             guard characteristic.isNotifying else {

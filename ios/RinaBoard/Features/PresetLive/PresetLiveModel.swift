@@ -330,7 +330,7 @@ final class PresetLiveModel {
             errorMessage = nil
         } catch {
             errorMessage = String(format: NSLocalizedString("演示脚本加载失败：%@", comment: "demo script load failed"),
-                                  String(describing: error))
+                                  error.rinaUserMessage)
         }
     }
 
@@ -372,7 +372,7 @@ final class PresetLiveModel {
             return true
         } catch {
             errorMessage = String(format: NSLocalizedString("无法载入演出：%@", comment: "built-in performance load failed"),
-                                  String(describing: error))
+                                  error.rinaUserMessage)
             return false
         }
     }
@@ -748,7 +748,7 @@ final class PresetLiveModel {
         } catch {
             guard !Task.isCancelled else { return false }
             deactivateSessionIfNeeded()
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
             return false
         }
     }
@@ -925,7 +925,7 @@ final class PresetLiveModel {
                   connection.output.isCurrent(submission.token) else { return }
             lastSubmittedPositionMs = nil
             errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
-                                  error.localizedDescription)
+                                  error.rinaUserMessage)
         }
     }
 
@@ -1124,13 +1124,23 @@ final class PresetLiveModel {
         if case PresetLiveImportError.partsUnavailable = error {
             return NSLocalizedString("无法加载部件库", comment: "parts library unavailable")
         }
-        if error is LivePerformanceScriptError { return String(describing: error) }
-        return error.localizedDescription
+        return error.rinaUserMessage
     }
 }
 
-private enum PresetLiveImportError: Error {
+private enum PresetLiveImportError: LocalizedError {
     case message(String)
     case selectionChanged
     case partsUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .message(let value):
+            return value
+        case .selectionChanged:
+            return NSLocalizedString("所选歌曲已改变，请重新导入", comment: "performance selection changed during import")
+        case .partsUnavailable:
+            return NSLocalizedString("无法加载部件库", comment: "parts library unavailable")
+        }
+    }
 }

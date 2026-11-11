@@ -270,7 +270,8 @@ public final class ConnectionViewModel {
         do {
             let reply = try await connection.command(.setDeviceName(name: requested))
             guard reply.ok else {
-                lastErrorMessage = reply.error ?? NSLocalizedString("重命名失败", comment: "board rename failed")
+                lastErrorMessage = reply.error.map { RinaErrorText.boardMessage($0, code: reply.code) }
+                    ?? NSLocalizedString("重命名失败", comment: "board rename failed")
                 return
             }
             let effective = reply.name ?? requested
@@ -325,7 +326,7 @@ public final class ConnectionViewModel {
         } catch {
             lastErrorMessage = String(
                 format: NSLocalizedString("重命名失败：%@", comment: "board rename error"),
-                error.localizedDescription
+                RinaErrorText.message(for: error)
             )
         }
     }
@@ -366,7 +367,9 @@ public final class ConnectionViewModel {
         }
         await connection.connect(using: transport)
         guard connection.connectionState == .connected else {
-            lastErrorMessage = NSLocalizedString("连接失败", comment: "board connection failed")
+            // BoardConnection's own reason (timeout, refused, wrong board)
+            // when it has one.
+            lastErrorMessage = connection.lastError ?? NSLocalizedString("连接失败", comment: "board connection failed")
             return
         }
         boardStore.upsert(KnownBoard(id: serviceIdentity?.storageID ?? displayHost,
@@ -510,7 +513,7 @@ public final class ConnectionViewModel {
             await refreshSavedAPMetadata(connection: connection, boardStore: boardStore, savedID: savedID)
             directAPStage = .connected
         } catch {
-            directAPStage = .failed(error.localizedDescription)
+            directAPStage = .failed(RinaErrorText.message(for: error))
         }
     }
 
@@ -609,7 +612,7 @@ public final class ConnectionViewModel {
                 joinedAPHost = apHost
                 transport = HotspotJoiner.makeTransport(host: apHost)
             } catch {
-                if sessions.active === target { lastErrorMessage = error.localizedDescription }
+                if sessions.active === target { lastErrorMessage = RinaErrorText.message(for: error) }
                 return
             }
         }
@@ -845,7 +848,7 @@ public final class ConnectionViewModel {
                 joinedSSID = try await joinBoardHotspot(ssid)
             } catch {
                 guard boardStore.boards.contains(where: { $0.id == board.id }) else { return }
-                lastErrorMessage = error.localizedDescription
+                lastErrorMessage = RinaErrorText.message(for: error)
                 return
             }
             // The user can forget this board while the iOS association
@@ -962,7 +965,7 @@ public final class ConnectionViewModel {
             _ = try await connection.command(.wifiSetMode(mode: mode))
             _ = try await connection.refreshWifiStatus()
         }
-        catch { lastErrorMessage = String(describing: error) }
+        catch { lastErrorMessage = RinaErrorText.message(for: error) }
     }
 
     public func scanNetworks(connection: BoardConnection) async {
@@ -972,7 +975,7 @@ public final class ConnectionViewModel {
             let reply = try await connection.wifiScan()
             wifiNetworks = reply.networks ?? []
         } catch {
-            lastErrorMessage = String(describing: error)
+            lastErrorMessage = RinaErrorText.message(for: error)
         }
     }
 
@@ -1001,13 +1004,13 @@ public final class ConnectionViewModel {
                 ))
             }
         } catch {
-            homeProvisionStage = .failed(error.localizedDescription)
+            homeProvisionStage = .failed(RinaErrorText.message(for: error))
         }
     }
 
     public func forgetNetwork(connection: BoardConnection) async {
         do { _ = try await connection.command(.wifiClearCredentials) }
-        catch { lastErrorMessage = String(describing: error) }
+        catch { lastErrorMessage = RinaErrorText.message(for: error) }
     }
 
     @discardableResult
@@ -1041,7 +1044,8 @@ public final class ConnectionViewModel {
             let reply = try await connection.command(.wifiSetAp(ssid: ssid, password: password, ip: canonicalIP))
             guard connection.connectionGeneration == generation else { return false }
             guard reply.ok else {
-                lastErrorMessage = reply.error ?? NSLocalizedString("热点设置未能保存", comment: "AP settings rejected")
+                lastErrorMessage = reply.error.map { RinaErrorText.boardMessage($0, code: reply.code) }
+                    ?? NSLocalizedString("热点设置未能保存", comment: "AP settings rejected")
                 return false
             }
             if !ssid.isEmpty, connection.transportKind == .hotspot { connection.expectedHotspotSSID = ssid }
@@ -1083,7 +1087,7 @@ public final class ConnectionViewModel {
             return true
         } catch {
             guard connection.connectionGeneration == generation else { return false }
-            lastErrorMessage = error.localizedDescription
+            lastErrorMessage = RinaErrorText.message(for: error)
             return false
         }
     }

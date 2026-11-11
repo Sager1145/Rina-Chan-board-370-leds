@@ -463,7 +463,7 @@ private struct SettingsDialogs: ViewModifier {
                 workspace.boardRebootError = String(
                     format: NSLocalizedString("重启命令未送达：%@",
                                               comment: "reboot command failed to reach the board"),
-                    error.localizedDescription
+                    RinaErrorText.message(for: error)
                 )
             }
         }

@@ -171,9 +171,10 @@ final class RinaRequestBroker {
         pending.removeValue(forKey: frame.seq)
         request.timeoutTask.cancel()
         if frame.isError {
-            let err = (try? JSONDecoder().decode(RinaLinkError.self, from: request.accumulated))
-                ?? RinaLinkError(error: "unknown error")
-            request.continuation.resume(throwing: err)
+            // An error frame that is not a well-formed error object still
+            // carries whatever the board managed to say; keep that instead of
+            // a placeholder so the message shown names the real cause.
+            request.continuation.resume(throwing: RinaLinkError(errorFramePayload: request.accumulated))
         } else {
             // H1: propagate the terminal frame's flags (e.g. MORE meaning "call
             // again with a higher offset") instead of hardcoding 0.

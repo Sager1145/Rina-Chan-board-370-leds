@@ -85,7 +85,7 @@ final class TextViewModel {
         } catch {
             draftStorageError = String(
                 format: NSLocalizedString("无法恢复文字草稿：%@", comment: "text draft restore failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
         }
     }
@@ -108,7 +108,7 @@ final class TextViewModel {
         } catch {
             draftStorageError = String(
                 format: NSLocalizedString("保存文字草稿失败：%@", comment: "text draft persistence failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
         }
     }
@@ -554,7 +554,7 @@ final class TextViewModel {
             localPhase = nil
         } catch {
             guard revision == uploadRevision else { return }
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
             localPhase = nil
         }
     }
@@ -1024,7 +1024,7 @@ final class TextViewModel {
         } catch {
             guard binding == bindingRevision, generation == connection.connectionGeneration,
                   pendingID == pendingFps?.id else { return false }
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
         }
         return false
     }
@@ -1044,7 +1044,7 @@ final class TextViewModel {
         } catch is CancellationError {
         } catch RatePumpError.dropped {
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
         }
         return false
     }

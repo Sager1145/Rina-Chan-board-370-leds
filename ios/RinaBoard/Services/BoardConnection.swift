@@ -489,7 +489,7 @@ public final class BoardConnection {
             if Task.isCancelled || error is CancellationError {
                 disconnect()
             } else {
-                connectionFailed(error.localizedDescription)
+                connectionFailed(RinaErrorText.message(for: error))
             }
             return false
         }
@@ -766,7 +766,7 @@ public final class BoardConnection {
                         continue
                     } catch {
                         guard !Task.isCancelled, self.transportSessionID == session else { return }
-                        self.connectionFailed(error.localizedDescription)
+                        self.connectionFailed(RinaErrorText.message(for: error))
                         return
                     }
                 }
@@ -1051,7 +1051,7 @@ public final class BoardConnection {
                 // raised before or after a partial write. Reset the
                 // carrier so a truncated frame cannot poison the next
                 // request on the board's streaming decoder.
-                self.connectionFailed(error.localizedDescription)
+                self.connectionFailed(RinaErrorText.message(for: error))
             }
         )
         try Task.checkCancellation()
@@ -1122,7 +1122,7 @@ public final class BoardConnection {
                 return frame
             }
             guard reply.ok else {
-                let detail = reply.error.flatMap { $0.isEmpty ? nil : "：\($0)" } ?? ""
+                let detail = BoardConnection.rejectionDetail(reply)
                 throw RinaTransportError.underlying(String(format: NSLocalizedString("面板拒绝指令：%@%@", comment: "rejected command name and firmware error detail"), cmd.name, detail))
             }
             self.updateDeviceName(from: reply, for: cmd, transport: activeTransport, generation: generation)
@@ -1142,10 +1142,22 @@ public final class BoardConnection {
     public func requestReliable(_ cmd: RinaCommand, timeout: TimeInterval = 5) async throws -> CommandReply {
         let reply: CommandReply = try await requestReliableDecoding(cmd, timeout: timeout)
         guard reply.ok else {
-            let detail = reply.error.flatMap { $0.isEmpty ? nil : "：\($0)" } ?? ""
+            let detail = BoardConnection.rejectionDetail(reply)
             throw RinaTransportError.underlying(String(localized: "面板拒绝指令：\(cmd.name)") + detail)
         }
         return reply
+    }
+
+    /// The "：<reason>" tail of a rejected-command message, from the board's
+    /// `error` text in an `ok:false` reply; empty when the board gave none.
+    /// A text the app knows is shown as its localized message; any other
+    /// text is shown as the board sent it.
+    nonisolated static func rejectionDetail(_ reply: CommandReply) -> String {
+        guard let text = reply.error, !text.isEmpty else { return "" }
+        let reason = RinaErrorText.isKnownBoardText(text)
+            ? RinaErrorText.boardMessage(text, code: reply.code)
+            : text
+        return "：\(reason)"
     }
 
     /// Typed-decoding variant of `requestReliable(_:timeout:)`, for replies
@@ -1487,7 +1499,7 @@ public final class BoardConnection {
                         // An unacknowledged abort leaves ownership unknown.
                         // Close this carrier so firmware releases its owner;
                         // the normal transport-state handler reconnects it.
-                        self.connectionFailed(error.localizedDescription)
+                        self.connectionFailed(RinaErrorText.message(for: error))
                     }
                 }
                 await cleanup.value
@@ -1918,6 +1930,27 @@ public enum RatePumpError: Error, Sendable {
     /// The operation was evicted from the FIFO queue (drop-oldest) before it
     /// got a chance to run.
     case dropped
+}
+
+extension ScrollUploadError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .timelineMismatch(let expected, let got):
+            return String(
+                format: NSLocalizedString("面板生成的滚动文字与本机不一致（面板 %lld 帧，本机 %lld 帧）", comment: "scroll upload error: board frame count, app frame count"),
+                Int64(got.frames), Int64(expected.frames)
+            )
+        }
+    }
+}
+
+extension RatePumpError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .dropped:
+            return NSLocalizedString("操作过于频繁，这次请求已被更新的请求取代", comment: "rate pump error: request dropped from the queue")
+        }
+    }
 }
 
 /// A depth-`N` FIFO rate limiter shared by frame sends and commands (D6):

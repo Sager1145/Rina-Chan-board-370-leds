@@ -38,3 +38,14 @@ struct FaceNumberLedger: Codable {
     func number(for id: String, scope: String) -> Int? { scopes[scope]?.byID[id] }
     enum LedgerError: Error { case invalidArchive, overflow }
 }
+
+extension FaceNumberLedger.LedgerError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .invalidArchive:
+            return NSLocalizedString("表情编号记录已损坏", comment: "face number ledger archive invalid")
+        case .overflow:
+            return NSLocalizedString("表情编号已用尽", comment: "face number ledger overflow")
+        }
+    }
+}

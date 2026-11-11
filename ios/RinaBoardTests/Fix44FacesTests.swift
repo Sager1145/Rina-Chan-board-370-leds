@@ -24,7 +24,8 @@ final class Fix44FacesTests: XCTestCase {
         let saved = await saving.value
 
         XCTAssertFalse(saved)
-        XCTAssertEqual(library.errorMessage, "too many faces; firmware max is 128")
+        XCTAssertEqual(library.errorMessage,
+                       RinaErrorText.boardMessage("too many faces; firmware max is 128", code: 413))
         XCTAssertFalse(editor.hasPendingBoardSave)
         XCTAssertEqual(transport.sentCount(type: .cmd), 1)
         XCTAssertEqual(transport.sentCount(type: .getFaces), 0)
@@ -45,7 +46,8 @@ final class Fix44FacesTests: XCTestCase {
         let outcome = await copy.value
 
         XCTAssertEqual(outcome, .failed)
-        XCTAssertEqual(library.errorMessage, "too many faces; firmware max is 128")
+        XCTAssertEqual(library.errorMessage,
+                       RinaErrorText.boardMessage("too many faces; firmware max is 128", code: 413))
         let journal = try await journalText()
         XCTAssertFalse(journal.contains(id), "A create the board refused has nothing left to reconcile")
     }

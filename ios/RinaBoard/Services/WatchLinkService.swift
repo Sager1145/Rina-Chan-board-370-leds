@@ -479,7 +479,7 @@ final class WatchLinkService {
             } catch is CancellationError {
             } catch RatePumpError.dropped {
             } catch {
-                lastCommandError = error.localizedDescription
+                lastCommandError = RinaErrorText.message(for: error)
             }
         case .direct(let connections, _):
             // One task per member, all awaited: members run concurrently and
@@ -496,7 +496,7 @@ final class WatchLinkService {
                         } catch RatePumpError.dropped {
                             return nil
                         } catch {
-                            return error.localizedDescription
+                            return RinaErrorText.message(for: error)
                         }
                     }
                 }

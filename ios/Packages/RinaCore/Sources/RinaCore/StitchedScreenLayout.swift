@@ -59,3 +59,25 @@ public struct StitchedScreenLayout: Sendable, Equatable {
         return offsets[slot]
     }
 }
+
+extension StitchedScreenLayout.LayoutError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .invalidSlotCount(let count):
+            return String(
+                format: NSLocalizedString("拼接屏需要 1 到 5 块面板，当前是 %lld 块", comment: "stitched screen slot count out of range; argument is the actual count"),
+                count
+            )
+        case .invalidGapsCount(let expected, let got):
+            return String(
+                format: NSLocalizedString("拼接屏的间隔数量不对：需要 %lld 个，实际是 %lld 个", comment: "stitched screen gap list has the wrong length: expected, actual"),
+                expected, got
+            )
+        case .invalidGap(let index, let value):
+            return String(
+                format: NSLocalizedString("拼接屏第 %lld 个间隔无效：%lld（应在 0 到 8 之间）", comment: "stitched screen gap out of range: 1-based gap position, value"),
+                index + 1, value
+            )
+        }
+    }
+}

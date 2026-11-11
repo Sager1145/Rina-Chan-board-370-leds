@@ -215,3 +215,43 @@ public func encoded<T: Encodable>(_ value: T) throws -> Data {
     let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
     return try encoder.encode(value)
 }
+
+// Looked up in the app's main bundle, like every other UI string. The
+// associated text of invalid / recoveryRequired / sqlite is an internal
+// diagnostic and is appended as-is.
+extension FaceSyncError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .invalid(let detail):
+            return String(format: NSLocalizedString("表情同步数据无效：%@", comment: "face sync invalid data; argument is a diagnostic detail"), detail)
+        case .scopeMismatch:
+            return NSLocalizedString("表情库不属于当前账号或资料库", comment: "face sync scope mismatch")
+        case .immutableCollision:
+            return NSLocalizedString("表情同步记录冲突：相同编号的内容不一致", comment: "face sync immutable record collision")
+        case .missingDependencies:
+            return NSLocalizedString("表情同步缺少前序记录，请稍后重试", comment: "face sync operation is missing its dependencies")
+        case .recoveryRequired(let detail):
+            return String(format: NSLocalizedString("表情同步需要先恢复：%@", comment: "face sync recovery required; argument is a diagnostic detail"), detail)
+        case .conflict:
+            return NSLocalizedString("表情已在别处被修改，请刷新后重试", comment: "face sync conflict")
+        case .deleted:
+            return NSLocalizedString("表情已被删除", comment: "face sync target was deleted")
+        case .capacity:
+            return NSLocalizedString("表情库已满", comment: "face sync capacity reached")
+        case .staleBoard:
+            return NSLocalizedString("面板上的表情库已变化，请重新读取", comment: "face sync board state is stale")
+        case .wrongBoard:
+            return NSLocalizedString("连接的不是这次同步的面板", comment: "face sync wrong board")
+        case .versionRollback:
+            return NSLocalizedString("表情库版本比已同步的版本旧，已拒绝回退", comment: "face sync version rollback")
+        case .ambiguousVersion:
+            return NSLocalizedString("表情库版本无法确定先后，请重新同步", comment: "face sync ambiguous version")
+        case .staleSession:
+            return NSLocalizedString("同步会话已过期，请重新开始", comment: "face sync stale session")
+        case .busy:
+            return NSLocalizedString("表情同步正在进行，请稍后重试", comment: "face sync busy")
+        case .sqlite(let detail):
+            return String(format: NSLocalizedString("表情数据库出错：%@", comment: "face sync database error; argument is the SQLite message"), detail)
+        }
+    }
+}

@@ -201,3 +201,14 @@ private extension String {
         return String(repeating: String(pad), count: length - count) + self
     }
 }
+
+extension ArkPixelFont.FontError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .invalidFormat:
+            return NSLocalizedString("字体文件格式无效", comment: "pixel font JSON is not the expected document")
+        case .invalidGlyphTable:
+            return NSLocalizedString("字体文件的字形表无效", comment: "pixel font glyph table is malformed")
+        }
+    }
+}

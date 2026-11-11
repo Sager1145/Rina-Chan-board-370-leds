@@ -241,7 +241,7 @@ final class ControlViewModel {
         } catch {
             draftStorageError = String(
                 format: NSLocalizedString("无法恢复草稿：%@", comment: "face draft restore failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
         }
     }
@@ -292,7 +292,7 @@ final class ControlViewModel {
         } catch {
             draftStorageError = String(
                 format: NSLocalizedString("将草稿保存到本机失败：%@", comment: "face draft persistence failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
             return false
         }
@@ -451,7 +451,7 @@ final class ControlViewModel {
         } catch {
             self.library = nil
             self.loadError = String(format: NSLocalizedString("无法加载部件库：%@", comment: "parts library load failed"),
-                                    error.localizedDescription)
+                                    error.rinaUserMessage)
         }
         lastSentFrame = draftFrame
         liveSender = LatestValueSender(minInterval: 0) { [weak self] submission in
@@ -685,7 +685,7 @@ final class ControlViewModel {
         } catch is CancellationError {
         } catch {
             errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
-                                  error.localizedDescription)
+                                  error.rinaUserMessage)
         }
     }
 
@@ -743,7 +743,7 @@ final class ControlViewModel {
         } catch {
             errorMessage = String(
                 format: NSLocalizedString("实时同步失败：%@", comment: "live face sync failed"),
-                error.localizedDescription
+                error.rinaUserMessage
             )
         }
     }
@@ -842,7 +842,7 @@ final class ControlViewModel {
                 return false
             }
         } catch {
-            library.errorMessage = error.localizedDescription
+            library.errorMessage = error.rinaUserMessage
             return false
         }
         guard location == .board, connection.connectionState == .connected else {

@@ -40,7 +40,7 @@ actor LocalFaceStore: LocalFaceStoring {
         do {
             topLevel = try JSONSerialization.jsonObject(with: data)
         } catch {
-            throw LocalFaceStoreError.malformed(error.localizedDescription)
+            throw LocalFaceStoreError.malformed(RinaErrorText.message(for: error))
         }
         guard let object = topLevel as? [String: Any] else {
             throw LocalFaceStoreError.malformed(

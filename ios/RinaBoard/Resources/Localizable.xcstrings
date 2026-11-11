@@ -27313,6 +27313,2932 @@
           }
         }
       }
+    },
+    "字体文件格式无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid font file format"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォントファイルの形式が正しくありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "字型檔案格式無效"
+          }
+        }
+      }
+    },
+    "字体文件的字形表无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The font file's glyph table is invalid"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォントファイルのグリフテーブルが無効です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "字型檔案的字符表無效"
+          }
+        }
+      }
+    },
+    "滚动文字太宽（%lld 列，上限 %lld 列），请缩短文字" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The scrolling text is too wide (%lld columns; limit: %lld columns). Shorten the text."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールテキストの幅が広すぎます（%lld 列、上限 %lld 列）。テキストを短くしてください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跑馬燈文字太寬（%lld 列，上限 %lld 列），請縮短文字"
+          }
+        }
+      }
+    },
+    "生成帧数过多（%lld 帧，上限 %lld 帧），请缩短文字" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too many frames were generated (%lld frames; limit: %lld frames). Shorten the text."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生成されたフレーム数が多すぎます（%lld フレーム、上限 %lld フレーム）。テキストを短くしてください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "產生的影格數過多（%lld 影格，上限 %lld 影格），請縮短文字"
+          }
+        }
+      }
+    },
+    "Live 脚本里没有任何关键帧" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Live script contains no keyframes"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live スクリプトにキーフレームがありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live 腳本裡沒有任何關鍵影格"
+          }
+        }
+      }
+    },
+    "Live 脚本第 %lld 行的帧率无效：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid frame rate on line %lld of the Live script: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live スクリプトの %lld 行目のフレームレートが無効です：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live 腳本第 %lld 行的影格率無效：%@"
+          }
+        }
+      }
+    },
+    "Live 脚本第 %lld 行的关键帧格式无效：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid keyframe format on line %lld of the Live script: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live スクリプトの %lld 行目のキーフレームの形式が無効です：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live 腳本第 %lld 行的關鍵影格格式無效：%@"
+          }
+        }
+      }
+    },
+    "Live 脚本第 %1$lld 行的%2$@部件不存在：%3$@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Line %1$lld of the Live script refers to a %2$@ part that does not exist: %3$@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live スクリプトの %1$lld 行目の%2$@パーツが存在しません：%3$@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live 腳本第 %1$lld 行的%2$@元件不存在：%3$@"
+          }
+        }
+      }
+    },
+    "Live 脚本第 %lld 行的帧号 %lld 没有比上一行大" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On line %lld of the Live script, frame number %lld is not greater than the previous line's"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live スクリプトの %lld 行目のフレーム番号 %lld が前の行より大きくありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live 腳本第 %lld 行的影格編號 %lld 沒有比上一行大"
+          }
+        }
+      }
+    },
+    "Live 脚本第 %lld 行的帧号过大：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The frame number on line %lld of the Live script is too large: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live スクリプトの %lld 行目のフレーム番号が大きすぎます：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live 腳本第 %lld 行的影格編號過大：%@"
+          }
+        }
+      }
+    },
+    "没有输入画面数据" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No frame data was entered"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フレームデータが入力されていません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未輸入畫面資料"
+          }
+        }
+      }
+    },
+    "画面数据格式无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid frame data format"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フレームデータの形式が正しくありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "畫面資料格式無效"
+          }
+        }
+      }
+    },
+    "画面数据需要 47 个整数，实际是 %lld 个" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frame data needs 47 integers, but %lld were given"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フレームデータには整数が 47 個必要ですが、実際は %lld 個です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "畫面資料需要 47 個整數，實際為 %lld 個"
+          }
+        }
+      }
+    },
+    "画面数据里的 %lld 超出了 0 到 255 的范围" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The value %lld in the frame data is outside the range 0 to 255"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フレームデータ内の %lld が 0〜255 の範囲外です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "畫面資料中的 %lld 超出了 0 到 255 的範圍"
+          }
+        }
+      }
+    },
+    "应用内缺少资源文件 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The app is missing the resource file %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App 内にリソースファイル %@ がありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App 內缺少資源檔案 %@"
+          }
+        }
+      }
+    },
+    "单次发送的数据过大：%lld 字节，上限 %lld 字节" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A single message is too large: %lld bytes; the limit is %lld bytes"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 回の送信データが大きすぎます：%lld バイト、上限 %lld バイト"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "單次傳送的資料過大：%lld 位元組，上限 %lld 位元組"
+          }
+        }
+      }
+    },
+    "拼接屏需要 1 到 5 块面板，当前是 %lld 块" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A stitched display needs 1 to 5 boards; there are currently %lld"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連結ディスプレイにはボードが 1〜5 台必要ですが、現在は %lld 台です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拼接螢幕需要 1 到 5 塊面板，目前是 %lld 塊"
+          }
+        }
+      }
+    },
+    "拼接屏的间隔数量不对：需要 %lld 个，实际是 %lld 个" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wrong number of stitched-display gaps: %lld needed, %lld given"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連結ディスプレイの間隔の数が正しくありません：必要 %lld 個、実際 %lld 個"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拼接螢幕的間隔數量不正確：需要 %lld 個，實際為 %lld 個"
+          }
+        }
+      }
+    },
+    "拼接屏第 %lld 个间隔无效：%lld（应在 0 到 8 之间）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stitched-display gap %lld is invalid: %lld (must be between 0 and 8)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連結ディスプレイの %lld 番目の間隔が無効です：%lld（0〜8 である必要があります）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拼接螢幕第 %lld 個間隔無效：%lld（應介於 0 到 8 之間）"
+          }
+        }
+      }
+    },
+    "表情同步数据无效：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid expression sync data: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情の同期データが無効です：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情同步資料無效：%@"
+          }
+        }
+      }
+    },
+    "表情库不属于当前账号或资料库" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression library does not belong to the current account or library"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情ライブラリが現在のアカウントまたはライブラリのものではありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情庫不屬於目前的帳號或資料庫"
+          }
+        }
+      }
+    },
+    "表情同步记录冲突：相同编号的内容不一致" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expression sync record conflict: the same ID has different content"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情の同期記録が競合しています：同じ番号の内容が一致しません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情同步記錄衝突：相同編號的內容不一致"
+          }
+        }
+      }
+    },
+    "表情同步缺少前序记录，请稍后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expression sync is missing earlier records. Try again shortly."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情の同期に必要な以前の記録がありません。少し待ってから再試行してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情同步缺少先前的記錄，請稍後再試"
+          }
+        }
+      }
+    },
+    "表情同步需要先恢复：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expression sync needs to be recovered first: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情の同期は先に復旧が必要です：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情同步需要先復原：%@"
+          }
+        }
+      }
+    },
+    "表情已在别处被修改，请刷新后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression was modified elsewhere. Refresh and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情が別の場所で変更されました。更新してからもう一度お試しください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情已在別處被修改，請重新整理後再試一次"
+          }
+        }
+      }
+    },
+    "表情已被删除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression has been deleted"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情は削除されています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情已被刪除"
+          }
+        }
+      }
+    },
+    "表情库已满" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression library is full"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情ライブラリがいっぱいです"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情庫已滿"
+          }
+        }
+      }
+    },
+    "面板上的表情库已变化，请重新读取" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression library on the board has changed. Read it again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの表情ライブラリが変更されました。もう一度読み込んでください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上的表情庫已變更，請重新讀取"
+          }
+        }
+      }
+    },
+    "连接的不是这次同步的面板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The connected board is not the one this sync is for"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続中のボードは、今回の同期対象のボードではありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連線的不是這次同步的面板"
+          }
+        }
+      }
+    },
+    "表情库版本比已同步的版本旧，已拒绝回退" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression library version is older than the synced one, so the rollback was refused"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情ライブラリのバージョンが同期済みのものより古いため、巻き戻しを拒否しました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情庫版本比已同步的版本舊，已拒絕回復舊版"
+          }
+        }
+      }
+    },
+    "表情库版本无法确定先后，请重新同步" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The order of the expression library versions cannot be determined. Sync again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情ライブラリのバージョンの前後関係を判定できません。同期し直してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法確定表情庫版本的先後，請重新同步"
+          }
+        }
+      }
+    },
+    "同步会话已过期，请重新开始" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The sync session has expired. Start again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同期セッションの有効期限が切れました。最初からやり直してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步工作階段已過期，請重新開始"
+          }
+        }
+      }
+    },
+    "表情同步正在进行，请稍后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expression sync is in progress. Try again shortly."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情を同期中です。少し待ってから再試行してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情同步正在進行，請稍後再試"
+          }
+        }
+      }
+    },
+    "表情数据库出错：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expression database error: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情データベースのエラー：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情資料庫發生錯誤：%@"
+          }
+        }
+      }
+    },
+    "导入失败：无法读取所选文件（%@）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import failed: the selected file could not be read (%@)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込みに失敗しました：選択したファイルを読み込めません（%@）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "匯入失敗：無法讀取所選檔案（%@）"
+          }
+        }
+      }
+    },
+    "导入失败：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import failed: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込みに失敗しました：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "匯入失敗：%@"
+          }
+        }
+      }
+    },
+    "读取面板失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not read from the board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードを読み取れませんでした"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "讀取面板失敗"
+          }
+        }
+      }
+    },
+    "表情编号记录已损坏" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression number record is corrupted"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情番号の記録が壊れています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情編號記錄已損毀"
+          }
+        }
+      }
+    },
+    "表情编号已用尽" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No expression numbers are left"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情番号を使い切りました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情編號已用盡"
+          }
+        }
+      }
+    },
+    "无法读取表情编号（%@）；原始 ID 仍可使用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't read expression numbers (%@); the original IDs still work"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情番号を読み込めませんでした（%@）。元の ID は引き続き使用できます"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法讀取表情編號（%@）；原始 ID 仍可使用"
+          }
+        }
+      }
+    },
+    "无法分配表情编号：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't assign an expression number: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情番号を割り当てられませんでした：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法分配表情編號：%@"
+          }
+        }
+      }
+    },
+    "视频无法播放" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The video cannot be played"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ビデオを再生できません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "影片無法播放"
+          }
+        }
+      }
+    },
+    "蓝牙连接失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth connection failed"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth 接続に失敗しました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "藍牙連線失敗"
+          }
+        }
+      }
+    },
+    "这台设备没有提供璃奈板的蓝牙服务" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This device does not offer the Rina board Bluetooth service"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このデバイスは璃奈ちゃんボードの Bluetooth サービスを提供していません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這台裝置未提供璃奈板的藍牙服務"
+          }
+        }
+      }
+    },
+    "璃奈板的蓝牙服务不完整，请重新连接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Rina board's Bluetooth service is incomplete. Reconnect and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈ちゃんボードの Bluetooth サービスが不完全です。接続し直してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "璃奈板的藍牙服務不完整，請重新連線"
+          }
+        }
+      }
+    },
+    "面板生成的滚动文字与本机不一致（面板 %lld 帧，本机 %lld 帧）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The scrolling text generated by the board does not match this device (board: %lld frames; this device: %lld frames)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードが生成したスクロールテキストがこのデバイスと一致しません（ボード %lld フレーム、このデバイス %lld フレーム）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板產生的跑馬燈文字與本機不一致（面板 %lld 影格，本機 %lld 影格）"
+          }
+        }
+      }
+    },
+    "操作过于频繁，这次请求已被更新的请求取代" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too many operations in a short time; this request was replaced by a newer one"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作が多すぎるため、このリクエストは新しいリクエストに置き換えられました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作過於頻繁，這次要求已被較新的要求取代"
+          }
+        }
+      }
+    },
+    "多板组最多只能有 %lld 块板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A board group can have at most %lld boards"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードグループに入れられるボードは最大 %lld 台です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多板組最多只能有 %lld 塊板"
+          }
+        }
+      }
+    },
+    "这块板已经在多板组中" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This board is already in the board group"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このボードはすでにボードグループに入っています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這塊板已經在多板組中"
+          }
+        }
+      }
+    },
+    "找不到这个多板组，可能已被删除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This board group cannot be found; it may have been deleted"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このボードグループが見つかりません。削除された可能性があります"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "找不到這個多板組，可能已被刪除"
+          }
+        }
+      }
+    },
+    "找不到要设置间隙的位置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The position of the gap to set cannot be found"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "間隔を設定する位置が見つかりません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "找不到要設定間隙的位置"
+          }
+        }
+      }
+    },
+    "间隙 %lld 列超出范围，必须在 0 到 %lld 列之间" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A gap of %lld columns is out of range; it must be between 0 and %lld columns"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "間隔 %lld 列は範囲外です。0〜%lld 列である必要があります"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "間隙 %lld 列超出範圍，必須介於 0 到 %lld 列之間"
+          }
+        }
+      }
+    },
+    "面板拒绝了连接，请确认地址和端口是否正确" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board refused the connection. Check that the address and port are correct."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードが接続を拒否しました。アドレスとポートが正しいか確認してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板拒絕了連線，請確認位址和連接埠是否正確"
+          }
+        }
+      }
+    },
+    "连接面板超时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connecting to the board timed out"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードへの接続がタイムアウトしました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連線面板逾時"
+          }
+        }
+      }
+    },
+    "无法访问面板，请确认本机和面板在同一网络" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cannot reach the board. Make sure this device and the board are on the same network."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードにアクセスできません。このデバイスとボードが同じネットワークにあることを確認してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法連上面板，請確認本機和面板在同一個網路"
+          }
+        }
+      }
+    },
+    "网络不可用，请检查 Wi-Fi 连接" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The network is unavailable. Check your Wi-Fi connection."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワークを利用できません。Wi-Fi 接続を確認してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "網路無法使用，請檢查 Wi-Fi 連線"
+          }
+        }
+      }
+    },
+    "与面板的网络连接已断开" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The network connection to the board was lost"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードとのネットワーク接続が切断されました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "與面板的網路連線已中斷"
+          }
+        }
+      }
+    },
+    "网络错误：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Network error: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワークエラー：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "網路錯誤：%@"
+          }
+        }
+      }
+    },
+    "无法解析面板地址（%lld）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cannot resolve the board's address (%lld)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードのアドレスを解決できません（%lld）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法解析面板位址（%lld）"
+          }
+        }
+      }
+    },
+    "向面板发送数据超时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sending data to the board timed out"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードへのデータ送信がタイムアウトしました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向面板傳送資料逾時"
+          }
+        }
+      }
+    },
+    "发生未知错误：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An unknown error occurred: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不明なエラーが発生しました：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "發生未知錯誤：%@"
+          }
+        }
+      }
+    },
+    "面板返回了未知错误" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board returned an unknown error"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードが不明なエラーを返しました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板傳回了未知錯誤"
+          }
+        }
+      }
+    },
+    "%1$@（%2$lld）：%3$@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ (%2$lld): %3$@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@（%2$lld）：%3$@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@（%2$lld）：%3$@"
+          }
+        }
+      }
+    },
+    "%1$@（%2$lld）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ (%2$lld)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@（%2$lld）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@（%2$lld）"
+          }
+        }
+      }
+    },
+    "%1$@：%2$@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: %2$@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@：%2$@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@：%2$@"
+          }
+        }
+      }
+    },
+    "面板拒绝了请求" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board rejected the request"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードがリクエストを拒否しました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板拒絕了要求"
+          }
+        }
+      }
+    },
+    "面板上找不到请求的内容" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board could not find the requested item"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要求された項目がボードに見つかりません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上找不到要求的內容"
+          }
+        }
+      }
+    },
+    "面板状态已变化，请刷新后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board's state has changed. Refresh and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの状態が変わりました。更新してからもう一度お試しください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板狀態已變更，請重新整理後再試一次"
+          }
+        }
+      }
+    },
+    "发送的内容超出面板限制" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The content sent exceeds the board's limit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "送信した内容がボードの上限を超えています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳送的內容超出面板限制"
+          }
+        }
+      }
+    },
+    "面板内部错误" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Board internal error"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの内部エラー"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板內部錯誤"
+          }
+        }
+      }
+    },
+    "面板暂时无法处理请求" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board is temporarily unable to handle the request"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードは現在リクエストを処理できません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板暫時無法處理要求"
+          }
+        }
+      }
+    },
+    "面板内存不足" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board is out of memory"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードのメモリが不足しています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板記憶體不足"
+          }
+        }
+      }
+    },
+    "面板返回了错误" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board returned an error"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードがエラーを返しました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板傳回了錯誤"
+          }
+        }
+      }
+    },
+    "面板不支持指令 %@，请更新面板固件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board does not support the command %@. Update the board firmware."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードはコマンド %@ に対応していません。ボードのファームウェアを更新してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板不支援指令 %@，請更新面板韌體"
+          }
+        }
+      }
+    },
+    "面板不支持这项功能，请更新面板固件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board does not support this feature. Update the board firmware."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードはこの機能に対応していません。ボードのファームウェアを更新してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板不支援此功能，請更新面板韌體"
+          }
+        }
+      }
+    },
+    "面板无法解析收到的数据" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board could not parse the data it received"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードが受信データを解析できませんでした"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板無法解析收到的資料"
+          }
+        }
+      }
+    },
+    "面板无法解析收到的数据：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board could not parse the data it received: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードが受信データを解析できませんでした：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板無法解析收到的資料：%@"
+          }
+        }
+      }
+    },
+    "发送过快，面板来不及处理，请稍后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Data is being sent faster than the board can handle. Try again shortly."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "送信が速すぎてボードの処理が追いつきません。少し待ってから再試行してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳送過快，面板來不及處理，請稍後再試"
+          }
+        }
+      }
+    },
+    "单次发送的数据过大，面板无法接收" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A single message was too large for the board to accept"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 回の送信データが大きすぎて、ボードが受信できません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "單次傳送的資料過大，面板無法接收"
+          }
+        }
+      }
+    },
+    "面板的回复内容过大，无法发送" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board's reply was too large to send"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの応答が大きすぎて送信できません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板的回覆內容過大，無法傳送"
+          }
+        }
+      }
+    },
+    "面板无法开始扫描 Wi-Fi，请稍后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board could not start a Wi-Fi scan. Try again shortly."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードが Wi-Fi のスキャンを開始できませんでした。少し待ってから再試行してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板無法開始掃描 Wi-Fi，請稍後再試"
+          }
+        }
+      }
+    },
+    "Wi-Fi 名称或密码无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid Wi-Fi name or password"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wi-Fi 名またはパスワードが無効です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wi-Fi 名稱或密碼無效"
+          }
+        }
+      }
+    },
+    "面板不支持这个模式" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board does not support this mode"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードはこのモードに対応していません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板不支援此模式"
+          }
+        }
+      }
+    },
+    "修改热点 IP 需要通过蓝牙连接面板" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changing the hotspot IP requires connecting to the board over Bluetooth"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホットスポット IP を変更するには、ボードに Bluetooth で接続する必要があります"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修改熱點 IP 需要透過藍牙連線面板"
+          }
+        }
+      }
+    },
+    "热点设置无效或热点启动失败：IP 必须是私有网段的 IPv4 地址，且末位在 1 到 254 之间" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The hotspot settings are invalid or the hotspot failed to start: the IP must be a private IPv4 address whose last octet is between 1 and 254"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホットスポットの設定が無効か、ホットスポットを起動できませんでした：IP はプライベートアドレス範囲の IPv4 アドレスで、末尾が 1〜254 である必要があります"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "熱點設定無效或熱點啟動失敗：IP 必須是私有網段的 IPv4 位址，且末位須介於 1 到 254 之間"
+          }
+        }
+      }
+    },
+    "这块面板的固件未启用蓝牙" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bluetooth is not enabled in this board's firmware"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このボードのファームウェアでは Bluetooth が有効になっていません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這塊面板的韌體未啟用藍牙"
+          }
+        }
+      }
+    },
+    "面板名称过长，最多 %@ 字节" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board name is too long; the limit is %@ bytes"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボード名が長すぎます。上限は %@ バイトです"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板名稱過長，最多 %@ 位元組"
+          }
+        }
+      }
+    },
+    "面板名称包含无效字符" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board name contains invalid characters"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボード名に無効な文字が含まれています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板名稱包含無效字元"
+          }
+        }
+      }
+    },
+    "提示灯编号无效，必须是 -1 或 0 到 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid hint LED index; it must be -1 or between 0 and %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ヒント LED の番号が無効です。-1 または 0〜%@ である必要があります"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提示燈編號無效，必須是 -1 或 0 到 %@"
+          }
+        }
+      }
+    },
+    "镜像提示灯编号无效，必须是 -1 或 0 到 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid mirrored hint LED index; it must be -1 or between 0 and %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ミラー側のヒント LED の番号が無効です。-1 または 0〜%@ である必要があります"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "鏡像提示燈編號無效，必須是 -1 或 0 到 %@"
+          }
+        }
+      }
+    },
+    "颜色格式无效，需要 #RRGGBB" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid colour format; #RRGGBB is required"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カラーの形式が無効です。#RRGGBB で指定してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顏色格式無效，需要 #RRGGBB"
+          }
+        }
+      }
+    },
+    "面板存储不可用，请重启面板后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Board storage is unavailable. Restart the board and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードのストレージを利用できません。ボードを再起動してからもう一度お試しください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板儲存空間無法使用，請重新啟動面板後再試一次"
+          }
+        }
+      }
+    },
+    "面板上的表情库已被改动，请刷新后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression library on the board has been changed. Refresh and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの表情ライブラリが変更されました。更新してからもう一度お試しください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上的表情庫已被更動，請重新整理後再試一次"
+          }
+        }
+      }
+    },
+    "这个表情在面板上已被改动，请刷新后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This expression has been changed on the board. Refresh and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この表情はボード上で変更されました。更新してからもう一度お試しください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這個表情在面板上已被更動，請重新整理後再試一次"
+          }
+        }
+      }
+    },
+    "传输过程中面板上的表情库发生了变化，请重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression library on the board changed during the transfer. Try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "転送中にボードの表情ライブラリが変更されました。もう一度お試しください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳輸過程中面板上的表情庫發生了變化，請再試一次"
+          }
+        }
+      }
+    },
+    "面板已重启，请重新同步后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board has restarted. Sync again, then retry."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードが再起動しました。同期し直してからもう一度お試しください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板已重新啟動，請重新同步後再試一次"
+          }
+        }
+      }
+    },
+    "面板上的表情库文件无法读取" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression library file on the board cannot be read"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの表情ライブラリファイルを読み込めません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法讀取面板上的表情庫檔案"
+          }
+        }
+      }
+    },
+    "面板上的表情库文件已损坏：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression library file on the board is corrupted: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの表情ライブラリファイルが壊れています：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上的表情庫檔案已損毀：%@"
+          }
+        }
+      }
+    },
+    "面板上的表情库暂时不可用，请稍后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression library on the board is temporarily unavailable. Try again shortly."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの表情ライブラリは一時的に利用できません。少し待ってから再試行してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上的表情庫暫時無法使用，請稍後再試"
+          }
+        }
+      }
+    },
+    "面板写入文件失败：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board failed to write a file: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードがファイルを書き込めませんでした：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板寫入檔案失敗：%@"
+          }
+        }
+      }
+    },
+    "面板无法创建表情库文件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board could not create the expression library file"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードが表情ライブラリファイルを作成できませんでした"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板無法建立表情庫檔案"
+          }
+        }
+      }
+    },
+    "面板表情库已满，最多保存 %@ 个表情" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board's expression library is full; it holds at most %@ expressions"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードの表情ライブラリがいっぱいです。保存できる表情は最大 %@ 個です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板表情庫已滿，最多可儲存 %@ 個表情"
+          }
+        }
+      }
+    },
+    "面板上的表情数量超出限制" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The number of expressions on the board exceeds the limit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボード上の表情の数が上限を超えています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上的表情數量超出限制"
+          }
+        }
+      }
+    },
+    "表情库过大，超出面板的容量限制" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression library is too large for the board's capacity"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情ライブラリが大きすぎて、ボードの容量を超えています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情庫過大，超出面板的容量限制"
+          }
+        }
+      }
+    },
+    "面板内存不足，无法处理表情库" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board is out of memory and cannot process the expression library"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードのメモリが不足しているため、表情ライブラリを処理できません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板記憶體不足，無法處理表情庫"
+          }
+        }
+      }
+    },
+    "面板上找不到表情 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expression %@ was not found on the board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情 %@ がボードに見つかりません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上找不到表情 %@"
+          }
+        }
+      }
+    },
+    "面板上找不到这个表情，可能已被删除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This expression was not found on the board; it may have been deleted"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この表情がボードに見つかりません。削除された可能性があります"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上找不到這個表情，可能已被刪除"
+          }
+        }
+      }
+    },
+    "面板上已有相同的表情" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The same expression already exists on the board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同じ表情がすでにボードにあります"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上已有相同的表情"
+          }
+        }
+      }
+    },
+    "默认表情不能重命名" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default expressions cannot be renamed"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デフォルトの表情は名前を変更できません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預設表情無法重新命名"
+          }
+        }
+      }
+    },
+    "默认表情不能删除" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default expressions cannot be deleted"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デフォルトの表情は削除できません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預設表情無法刪除"
+          }
+        }
+      }
+    },
+    "默认表情不能覆盖" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default expressions cannot be overwritten"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デフォルトの表情は上書きできません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預設表情無法覆寫"
+          }
+        }
+      }
+    },
+    "面板上至少要保留一个默认表情" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At least one default expression must remain on the board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードにはデフォルトの表情を少なくとも 1 つ残す必要があります"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上至少要保留一個預設表情"
+          }
+        }
+      }
+    },
+    "表情名称不能为空，且不能超过 64 字节" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression name cannot be empty or longer than 64 bytes"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情の名前は空にできず、64 バイト以内である必要があります"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情名稱不可為空，且不可超過 64 位元組"
+          }
+        }
+      }
+    },
+    "表情顺序与面板上的表情库不一致，请刷新后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The expression order does not match the board's expression library. Refresh and try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情の並び順がボードの表情ライブラリと一致しません。更新してからもう一度お試しください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情順序與面板上的表情庫不一致，請重新整理後再試一次"
+          }
+        }
+      }
+    },
+    "面板不支持这种表情类型" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board does not support this type of expression"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードはこの種類の表情に対応していません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板不支援這種表情類型"
+          }
+        }
+      }
+    },
+    "面板不支持这个版本的部件表情" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board does not support this version of parts-based expressions"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードはこのバージョンのパーツ表情に対応していません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板不支援此版本的元件表情"
+          }
+        }
+      }
+    },
+    "表情部件编号无效：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid expression part ID: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情パーツの番号が無効です：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情元件編號無效：%@"
+          }
+        }
+      }
+    },
+    "表情部件编号无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid expression part ID"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情パーツの番号が無効です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情元件編號無效"
+          }
+        }
+      }
+    },
+    "表情画面数据无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid expression frame data"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情のフレームデータが無効です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情畫面資料無效"
+          }
+        }
+      }
+    },
+    "面板正在接收另一段滚动文字，请稍后重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board is receiving another scrolling text. Try again shortly."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードは別のスクロールテキストを受信中です。少し待ってから再試行してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板正在接收另一段跑馬燈文字，請稍後再試"
+          }
+        }
+      }
+    },
+    "这次滚动文字上传已被新的上传取代" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This scrolling-text upload was replaced by a newer upload"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このスクロールテキストのアップロードは、新しいアップロードに置き換えられました"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這次跑馬燈文字上傳已被新的上傳取代"
+          }
+        }
+      }
+    },
+    "滚动文字过长，超出面板可接收的帧数" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The scrolling text is too long; it exceeds the number of frames the board can accept"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールテキストが長すぎて、ボードが受信できるフレーム数を超えています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跑馬燈文字過長，超出面板可接收的影格數"
+          }
+        }
+      }
+    },
+    "文字内容过长，超出面板限制" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The text is too long for the board's limit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "テキストが長すぎて、ボードの上限を超えています"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文字內容過長，超出面板限制"
+          }
+        }
+      }
+    },
+    "面板内存不足，无法接收滚动文字" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board is out of memory and cannot receive the scrolling text"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードのメモリが不足しているため、スクロールテキストを受信できません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板記憶體不足，無法接收跑馬燈文字"
+          }
+        }
+      }
+    },
+    "面板保存滚动文字失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The board failed to save the scrolling text"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードがスクロールテキストを保存できませんでした"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板儲存跑馬燈文字失敗"
+          }
+        }
+      }
+    },
+    "滚动文字的画面数据无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid scrolling-text frame data"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールテキストのフレームデータが無効です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跑馬燈文字的畫面資料無效"
+          }
+        }
+      }
+    },
+    "面板上没有可播放的滚动文字，请重新发送" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There is no scrolling text to play on the board. Send it again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードに再生できるスクロールテキストがありません。もう一度送信してください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "面板上沒有可播放的跑馬燈文字，請重新傳送"
+          }
+        }
+      }
+    },
+    "数据上传中断，请重试" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The data upload was interrupted. Try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "データのアップロードが中断されました。もう一度お試しください"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "資料上傳中斷，請再試一次"
+          }
+        }
+      }
+    },
+    "数据无法解析：缺少字段 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The data could not be parsed: missing field %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "データを解析できません：フィールド %@ がありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法解析資料：缺少欄位 %@"
+          }
+        }
+      }
+    },
+    "数据无法解析：字段 %@ 没有值" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The data could not be parsed: field %@ has no value"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "データを解析できません：フィールド %@ に値がありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法解析資料：欄位 %@ 沒有值"
+          }
+        }
+      }
+    },
+    "数据无法解析：字段 %@ 的类型不符" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The data could not be parsed: field %@ has the wrong type"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "データを解析できません：フィールド %@ の型が一致しません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法解析資料：欄位 %@ 的類型不符"
+          }
+        }
+      }
+    },
+    "数据无法解析：字段 %@ 的内容无效" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The data could not be parsed: field %@ has invalid content"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "データを解析できません：フィールド %@ の内容が無効です"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法解析資料：欄位 %@ 的內容無效"
+          }
+        }
+      }
+    },
+    "数据无法解析：格式不正确" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The data could not be parsed: incorrect format"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "データを解析できません：形式が正しくありません"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法解析資料：格式不正確"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

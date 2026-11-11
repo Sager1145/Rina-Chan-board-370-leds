@@ -52,6 +52,44 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
         return parameters
     }
 
+    /// Network.framework errors carry no localized description of their own
+    /// (`localizedDescription` is the generic "operation couldn't be
+    /// completed" sentence), so the common socket failures are named here.
+    static func message(for error: NWError) -> String {
+        switch error {
+        case .posix(let code):
+            switch code {
+            case .ECONNREFUSED:
+                return NSLocalizedString("面板拒绝了连接，请确认地址和端口是否正确", comment: "TCP error: connection refused")
+            case .ETIMEDOUT:
+                return NSLocalizedString("连接面板超时", comment: "TCP connection attempt timed out")
+            case .EHOSTUNREACH, .EHOSTDOWN:
+                return NSLocalizedString("无法访问面板，请确认本机和面板在同一网络", comment: "TCP error: host unreachable")
+            case .ENETUNREACH, .ENETDOWN:
+                return NSLocalizedString("网络不可用，请检查 Wi-Fi 连接", comment: "TCP error: network unreachable")
+            case .ECONNRESET, .ECONNABORTED, .EPIPE, .ENOTCONN:
+                return NSLocalizedString("与面板的网络连接已断开", comment: "TCP error: connection reset or closed")
+            case .ECANCELED:
+                return NSLocalizedString("操作已取消", comment: "transport error cancelled")
+            default:
+                return String(
+                    format: NSLocalizedString("网络错误：%@", comment: "TCP error: other socket error; argument is the system's description"),
+                    String(cString: strerror(code.rawValue))
+                )
+            }
+        case .dns(let code):
+            return String(
+                format: NSLocalizedString("无法解析面板地址（%lld）", comment: "TCP error: DNS lookup failed; argument is the DNS error code"),
+                Int64(code)
+            )
+        default:
+            return String(
+                format: NSLocalizedString("网络错误：%@", comment: "TCP error: other socket error; argument is the system's description"),
+                String(describing: error)
+            )
+        }
+    }
+
     public func stateStream() -> AsyncStream<TransportState> {
         let id = UUID()
         return AsyncStream { continuation in
@@ -129,9 +167,9 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
                         self.receiveLoop(on: connection)
                         self.finishConnect(on: connection, result: .success(()))
                     case .failed(let error):
-                        self.emitState(.failed(error.localizedDescription))
+                        self.emitState(.failed(Self.message(for: error)))
                         self.finishConnect(on: connection,
-                                           result: .failure(RinaTransportError.underlying(error.localizedDescription)))
+                                           result: .failure(RinaTransportError.underlying(Self.message(for: error))))
                     case .cancelled:
                         self.emitState(.disconnected)
                         self.finishConnect(on: connection, result: .failure(RinaTransportError.cancelled))
@@ -157,7 +195,7 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
         guard let waiter else { return }
         connection.stateUpdateHandler = nil
         connection.cancel()
-        emitState(.failed("TCP connection timed out"))
+        emitState(.failed(NSLocalizedString("连接面板超时", comment: "TCP connection attempt timed out")))
         waiter.resume(throwing: RinaTransportError.timeout)
     }
 
@@ -169,7 +207,7 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
         }
         connection.stateUpdateHandler = nil
         connection.cancel()
-        if wasCurrent { emitState(.failed("TCP write timed out")) }
+        if wasCurrent { emitState(.failed(NSLocalizedString("向面板发送数据超时", comment: "TCP write timed out"))) }
     }
 
     private func isCurrent(_ connection: NWConnection) -> Bool {
@@ -219,7 +257,7 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
             }
             connection.send(content: data, completion: .contentProcessed { error in
                 if let error {
-                    completion(.failure(RinaTransportError.underlying(error.localizedDescription)))
+                    completion(.failure(RinaTransportError.underlying(Self.message(for: error))))
                 } else {
                     completion(.success(()))
                 }
@@ -234,7 +272,7 @@ public final class TCPTransport: RinaTransport, @unchecked Sendable {
                 self.emitIncoming(data)
             }
             if let error {
-                self.emitState(.failed(error.localizedDescription))
+                self.emitState(.failed(Self.message(for: error)))
                 return
             }
             if isComplete {

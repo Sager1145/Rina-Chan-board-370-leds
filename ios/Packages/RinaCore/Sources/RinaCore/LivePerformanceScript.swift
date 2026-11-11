@@ -204,3 +204,37 @@ public enum LivePerformanceScriptParser {
         throw LivePerformanceScriptError.unknownPart(line: line, group: group, value: value)
     }
 }
+
+extension LivePerformanceScriptError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .empty:
+            return NSLocalizedString("Live 脚本里没有任何关键帧", comment: "live performance script has no keyframes")
+        case .badFps(let line, let text):
+            return String(
+                format: NSLocalizedString("Live 脚本第 %lld 行的帧率无效：%@", comment: "live script bad #fps: line number, offending text"),
+                line, text
+            )
+        case .badKeyframe(let line, let text):
+            return String(
+                format: NSLocalizedString("Live 脚本第 %lld 行的关键帧格式无效：%@", comment: "live script bad keyframe: line number, offending text"),
+                line, text
+            )
+        case .unknownPart(let line, let group, let value):
+            return String(
+                format: NSLocalizedString("Live 脚本第 %1$lld 行的%2$@部件不存在：%3$@", comment: "live script unknown part: line number, part group name, offending value"),
+                line, group.displayName, value
+            )
+        case .nonMonotonicFrame(let line, let frame):
+            return String(
+                format: NSLocalizedString("Live 脚本第 %lld 行的帧号 %lld 没有比上一行大", comment: "live script frame numbers must increase: line number, frame number"),
+                line, frame
+            )
+        case .frameTooLarge(let line, let text):
+            return String(
+                format: NSLocalizedString("Live 脚本第 %lld 行的帧号过大：%@", comment: "live script frame number too large: line number, offending text"),
+                line, text
+            )
+        }
+    }
+}

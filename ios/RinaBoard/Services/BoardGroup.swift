@@ -160,6 +160,28 @@ public final class BoardGroupStore {
         case invalidGap(Int)
     }
 
+    /// `GroupError`'s user-facing text; see the `LocalizedError` extension below.
+    nonisolated static func message(for error: GroupError) -> String {
+        switch error {
+        case .tooManyMembers:
+            return String(
+                format: NSLocalizedString("多板组最多只能有 %lld 块板", comment: "board group error: member limit reached; argument is the limit"),
+                Int64(BoardGroup.maxMembers)
+            )
+        case .duplicateMember:
+            return NSLocalizedString("这块板已经在多板组中", comment: "board group error: board is already a member")
+        case .notFound:
+            return NSLocalizedString("找不到这个多板组，可能已被删除", comment: "board group error: group no longer exists")
+        case .invalidGapCount:
+            return NSLocalizedString("找不到要设置间隙的位置", comment: "board group error: gap slot out of range")
+        case .invalidGap(let columns):
+            return String(
+                format: NSLocalizedString("间隙 %lld 列超出范围，必须在 0 到 %lld 列之间", comment: "board group error: gap width out of range; arguments are the requested width and the maximum"),
+                Int64(columns), Int64(BoardGroup.maxGap)
+            )
+        }
+    }
+
     @discardableResult
     public func create(name: String) -> BoardGroup {
         var uniqueName = name
@@ -347,4 +369,8 @@ public final class BoardGroupStore {
         groups[index] = group
         persist()
     }
+}
+
+extension BoardGroupStore.GroupError: LocalizedError {
+    public var errorDescription: String? { BoardGroupStore.message(for: self) }
 }

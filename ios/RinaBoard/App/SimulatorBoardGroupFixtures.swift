@@ -1,5 +1,6 @@
 #if DEBUG && targetEnvironment(simulator)
 import Foundation
+import RinaCore
 
 /// Opt-in local fixtures. Connections still use TCPTransport and the normal
 /// handshake, upload, clock sync and group playback paths.
@@ -69,7 +70,7 @@ enum SimulatorBoardGroupFixtures {
                 await coordinator.pause(group: group)
             }
         } catch {
-            textModel.errorMessage = "Test group: \(error.localizedDescription)"
+            textModel.errorMessage = "Test group: \(RinaErrorText.message(for: error))"
         }
     }
 }

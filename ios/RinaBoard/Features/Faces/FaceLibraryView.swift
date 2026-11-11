@@ -259,7 +259,7 @@ struct FaceLibraryView: View {
         }
         .fileExporter(isPresented: $isExporting, document: exportDocument,
                       contentType: .json, defaultFilename: "saved_faces") { result in
-            if case .failure(let error) = result { model.errorMessage = error.localizedDescription }
+            if case .failure(let error) = result { model.errorMessage = error.rinaUserMessage }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }
@@ -269,8 +269,11 @@ struct FaceLibraryView: View {
             }
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else {
-                model.reportImportUnreadable()
+            let data: Data
+            do {
+                data = try Data(contentsOf: url)
+            } catch {
+                model.reportImportUnreadable(error)
                 return
             }
             let target = importLocation

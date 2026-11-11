@@ -83,3 +83,15 @@ public enum RinaResources {
     }
 
 }
+
+extension RinaResources.LoaderError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .resourceNotFound(let name, let ext):
+            return String(
+                format: NSLocalizedString("应用内缺少资源文件 %@", comment: "bundled resource missing; argument is the file name"),
+                ext.isEmpty ? name : name + "." + ext
+            )
+        }
+    }
+}

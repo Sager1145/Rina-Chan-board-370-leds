@@ -808,11 +808,11 @@ public final class GroupControlFanOut {
             if error is CancellationError { return }
             if case .command(_, _, _, let alignment) = item, let alignment {
                 guard isCurrent(alignment, for: channel) else { return }
-                channel.alignmentErrors[alignment.field] = error.localizedDescription
+                channel.alignmentErrors[alignment.field] = RinaErrorText.message(for: error)
                 scheduleAlignmentRetry(alignment, channel: channel)
             } else {
                 if case RatePumpError.dropped = error { return }
-                channel.operationErrors[operationKey(for: item)] = error.localizedDescription
+                channel.operationErrors[operationKey(for: item)] = RinaErrorText.message(for: error)
             }
             refreshMemberError(channel)
         }

@@ -144,7 +144,7 @@ struct ScrollTextView: View {
                     do {
                         try await groupCoordinator.moveMember(group: group, from: sourceID, to: targetID)
                     } catch {
-                        model.errorMessage = String(localized: "调整顺序失败：\(error.localizedDescription)")
+                        model.errorMessage = String(localized: "调整顺序失败：\(error.rinaUserMessage)")
                         throw error
                     }
                 }
@@ -370,7 +370,7 @@ struct ScrollTextView: View {
                 loop: model.loopPlayback
             )
         } catch {
-            model.errorMessage = error.localizedDescription
+            model.errorMessage = error.rinaUserMessage
         }
     }
 

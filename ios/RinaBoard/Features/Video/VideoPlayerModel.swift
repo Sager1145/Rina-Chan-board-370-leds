@@ -371,7 +371,7 @@ final class VideoPlayerModel {
 
     private func reportImportFailure(_ error: Error) {
         errorMessage = String(format: NSLocalizedString("导入视频失败：%@", comment: "video import failed"),
-                              error.localizedDescription)
+                              error.rinaUserMessage)
     }
 
     /// Validates the file before it replaces anything: a file that turns out
@@ -736,7 +736,7 @@ final class VideoPlayerModel {
             lastSubmitted = nil
             lastSubmittedPositionMs = nil
             errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
-                                  error.localizedDescription)
+                                  error.rinaUserMessage)
         }
     }
 
@@ -795,7 +795,8 @@ final class VideoPlayerModel {
         if player.currentItem?.status == .failed {
             let failure = player.currentItem?.error
             pause()
-            errorMessage = failure?.localizedDescription
+            errorMessage = failure?.rinaUserMessage
+                ?? NSLocalizedString("视频无法播放", comment: "video player item failed without an error")
             return
         }
         if player.timeControlStatus == .playing { playbackClockStarted = true }
@@ -1059,7 +1060,7 @@ final class VideoPlayerModel {
         } catch {
             guard !Task.isCancelled else { return false }
             deactivateSessionIfNeeded()
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
             return false
         }
     }

@@ -434,7 +434,7 @@ final class DebugViewModel {
                     _ = try await connection.command(.logSubscribe(on: false))
                 } catch is CancellationError {
                 } catch {
-                    log(.warn, String(format: NSLocalizedString("关闭固件日志订阅失败：%@", comment: "debug firmware log unsubscribe failed"), error.localizedDescription))
+                    log(.warn, String(format: NSLocalizedString("关闭固件日志订阅失败：%@", comment: "debug firmware log unsubscribe failed"), RinaErrorText.message(for: error)))
                 }
             }
             return
@@ -449,7 +449,9 @@ final class DebugViewModel {
                 guard !Task.isCancelled else { return }
                 let reply = try await connection.command(.logSubscribe(on: true))
                 guard reply.ok else {
-                    self?.firmwareLogState = .failed(reply.error ?? NSLocalizedString("固件拒绝订阅", comment: "debug firmware log subscription rejected"))
+                    self?.firmwareLogState = .failed(
+                        reply.error.map { RinaErrorText.boardMessage($0, code: reply.code) }
+                            ?? NSLocalizedString("固件拒绝订阅", comment: "debug firmware log subscription rejected"))
                     return
                 }
                 guard !Task.isCancelled else { return }
@@ -474,7 +476,7 @@ final class DebugViewModel {
                 }
             } catch is CancellationError {
             } catch {
-                self?.firmwareLogState = .failed(error.localizedDescription)
+                self?.firmwareLogState = .failed(RinaErrorText.message(for: error))
             }
         }
     }
@@ -669,8 +671,8 @@ final class DebugViewModel {
             log(.info, NSLocalizedString("刷新状态成功", comment: "debug status refresh succeeded"))
         } catch {
             guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
-            lastLocalError = error.localizedDescription
-            log(.error, String(format: NSLocalizedString("刷新状态失败：%@", comment: "debug status refresh failed"), error.localizedDescription))
+            lastLocalError = RinaErrorText.message(for: error)
+            log(.error, String(format: NSLocalizedString("刷新状态失败：%@", comment: "debug status refresh failed"), RinaErrorText.message(for: error)))
         }
     }
 
@@ -688,8 +690,8 @@ final class DebugViewModel {
             log(.info, NSLocalizedString("刷新电源成功", comment: "debug power refresh succeeded"))
         } catch {
             guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
-            lastLocalError = error.localizedDescription
-            log(.error, String(format: NSLocalizedString("刷新电源失败：%@", comment: "debug power refresh failed"), error.localizedDescription))
+            lastLocalError = RinaErrorText.message(for: error)
+            log(.error, String(format: NSLocalizedString("刷新电源失败：%@", comment: "debug power refresh failed"), RinaErrorText.message(for: error)))
         }
     }
 
@@ -705,8 +707,8 @@ final class DebugViewModel {
             log(.info, NSLocalizedString("获取设备信息成功", comment: "debug device info refresh succeeded"))
         } catch {
             guard ownsSnapshot(epoch, connection: connection, generation: generation) else { return }
-            lastLocalError = error.localizedDescription
-            log(.error, String(format: NSLocalizedString("获取设备信息失败：%@", comment: "debug device info refresh failed"), error.localizedDescription))
+            lastLocalError = RinaErrorText.message(for: error)
+            log(.error, String(format: NSLocalizedString("获取设备信息失败：%@", comment: "debug device info refresh failed"), RinaErrorText.message(for: error)))
         }
     }
 
@@ -746,7 +748,7 @@ final class DebugViewModel {
             pingMs = rtt
             log(.info, String(format: NSLocalizedString("PING 往返 %.1f ms，运行时间 %lld ms", comment: "debug ping result"), rtt, Int64(uptime)))
         } catch {
-            log(.error, String(format: NSLocalizedString("PING 失败：%@", comment: "debug ping failed"), error.localizedDescription))
+            log(.error, String(format: NSLocalizedString("PING 失败：%@", comment: "debug ping failed"), RinaErrorText.message(for: error)))
         }
     }
 
@@ -800,7 +802,8 @@ final class DebugViewModel {
                 commandRejected += 1
                 log(.warn, String(format: NSLocalizedString("%@ 被设备拒绝：%@", comment: "debug command rejected"),
                                   cmd.name,
-                                  reply.error ?? NSLocalizedString("未知原因", comment: "unknown device rejection reason")))
+                                  reply.error.map { RinaErrorText.boardMessage($0, code: reply.code) }
+                                      ?? NSLocalizedString("未知原因", comment: "unknown device rejection reason")))
                 return false
             }
             log(.info, note ?? String(format: NSLocalizedString("%@ -> 成功", comment: "debug command succeeded"), cmd.name))
@@ -811,10 +814,10 @@ final class DebugViewModel {
         } catch {
             if Self.isDeviceRejection(error) {
                 commandRejected += 1
-                log(.warn, String(format: NSLocalizedString("%@ 被设备拒绝：%@", comment: "debug command rejected"), cmd.name, error.localizedDescription))
+                log(.warn, String(format: NSLocalizedString("%@ 被设备拒绝：%@", comment: "debug command rejected"), cmd.name, RinaErrorText.message(for: error)))
             } else {
                 commandFailures += 1
-                log(.error, String(format: NSLocalizedString("%@ 失败：%@", comment: "debug command failed"), cmd.name, error.localizedDescription))
+                log(.error, String(format: NSLocalizedString("%@ 失败：%@", comment: "debug command failed"), cmd.name, RinaErrorText.message(for: error)))
             }
             return false
         }
@@ -834,7 +837,8 @@ final class DebugViewModel {
             guard reply.ok else {
                 commandRejected += 1
                 log(.warn, String(format: NSLocalizedString("发送图案被设备拒绝：%@", comment: "debug pattern rejected"),
-                                  reply.error ?? NSLocalizedString("未知原因", comment: "unknown device rejection reason")))
+                                  reply.error.map { RinaErrorText.boardMessage($0, code: reply.code) }
+                                      ?? NSLocalizedString("未知原因", comment: "unknown device rejection reason")))
                 return
             }
             debugFrame = frame
@@ -845,10 +849,10 @@ final class DebugViewModel {
         } catch {
             if Self.isDeviceRejection(error) {
                 commandRejected += 1
-                log(.warn, String(format: NSLocalizedString("发送图案被设备拒绝：%@", comment: "debug pattern rejected"), error.localizedDescription))
+                log(.warn, String(format: NSLocalizedString("发送图案被设备拒绝：%@", comment: "debug pattern rejected"), RinaErrorText.message(for: error)))
             } else {
                 frameFailures += 1
-                log(.error, String(format: NSLocalizedString("发送图案失败（%@）：%@", comment: "debug pattern send failed"), pattern.label, error.localizedDescription))
+                log(.error, String(format: NSLocalizedString("发送图案失败（%@）：%@", comment: "debug pattern send failed"), pattern.label, RinaErrorText.message(for: error)))
             }
         }
     }
@@ -899,7 +903,8 @@ final class DebugViewModel {
             guard reply.ok else {
                 commandRejected += 1
                 log(.warn, String(format: NSLocalizedString("发送解析帧被设备拒绝：%@", comment: "debug packed frame rejected"),
-                                  reply.error ?? NSLocalizedString("未知原因", comment: "unknown device rejection reason")))
+                                  reply.error.map { RinaErrorText.boardMessage($0, code: reply.code) }
+                                      ?? NSLocalizedString("未知原因", comment: "unknown device rejection reason")))
                 return
             }
             debugFrame = frame
@@ -910,10 +915,10 @@ final class DebugViewModel {
         } catch {
             if Self.isDeviceRejection(error) {
                 commandRejected += 1
-                log(.warn, String(format: NSLocalizedString("发送解析帧被设备拒绝：%@", comment: "debug packed frame rejected"), error.localizedDescription))
+                log(.warn, String(format: NSLocalizedString("发送解析帧被设备拒绝：%@", comment: "debug packed frame rejected"), RinaErrorText.message(for: error)))
             } else {
                 frameFailures += 1
-                log(.error, String(format: NSLocalizedString("发送解析帧失败：%@", comment: "debug packed frame failed"), error.localizedDescription))
+                log(.error, String(format: NSLocalizedString("发送解析帧失败：%@", comment: "debug packed frame failed"), RinaErrorText.message(for: error)))
             }
         }
     }
@@ -940,7 +945,7 @@ final class DebugViewModel {
         do {
             request = try DebugMonitorRequest.parse(input)
         } catch {
-            appendMonitor(.error, error.localizedDescription)
+            appendMonitor(.error, RinaErrorText.message(for: error))
             return
         }
         guard !request.isDestructive || monitorDestructiveConfirmed else { return }
@@ -970,7 +975,7 @@ final class DebugViewModel {
             appendMonitor(.warn, NSLocalizedString("原始指令已被新的输出操作替代", comment: "debug command superseded"))
         } catch {
             if Self.isDeviceRejection(error) { commandRejected += 1 } else { commandFailures += 1 }
-            appendMonitor(.error, "RX ← \(error.localizedDescription)")
+            appendMonitor(.error, "RX ← \(RinaErrorText.message(for: error))")
         }
     }
 
@@ -994,7 +999,7 @@ final class DebugViewModel {
             log(.debug, NSLocalizedString("清空用户表情已被新的输出操作替代", comment: "debug clear faces superseded"))
         } catch {
             commandFailures += 1
-            log(.error, String(format: NSLocalizedString("清空用户表情失败：%@", comment: "debug clear faces failed"), error.localizedDescription))
+            log(.error, String(format: NSLocalizedString("清空用户表情失败：%@", comment: "debug clear faces failed"), RinaErrorText.message(for: error)))
         }
     }
 

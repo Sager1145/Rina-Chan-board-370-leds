@@ -293,3 +293,19 @@ public enum ScrollRasterizer {
         )
     }
 }
+
+extension ScrollRasterizer.RasterizerError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .emptyText:
+            return NSLocalizedString("请输入要滚动显示的文字", comment: "empty scroll text")
+        case .textTooLong:
+            return NSLocalizedString("文本超过 4096 字节", comment: "scroll text too long")
+        case .tooManyFrames(let projected):
+            return String(
+                format: NSLocalizedString("生成帧数过多(%lld > 3072)，请缩短文字", comment: "too many scroll frames"),
+                projected
+            )
+        }
+    }
+}

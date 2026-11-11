@@ -676,14 +676,14 @@ public final class BoardGroupCoordinator {
         do {
             font = try await loadFont()
         } catch {
-            throw GroupPlayError.buildFailed(error.localizedDescription)
+            throw GroupPlayError.buildFailed(RinaErrorText.message(for: error))
         }
         guard preflightStillValid() else { throw GroupPlayError.aborted }
         let bitmap: ScrollBitmap
         do {
             bitmap = try GroupScrollBitmap.build(text: text, font: font, virtualWidth: virtualWidth)
         } catch {
-            throw GroupPlayError.buildFailed(error.localizedDescription)
+            throw GroupPlayError.buildFailed(RinaErrorText.message(for: error))
         }
         guard preflightStillValid() else { throw GroupPlayError.aborted }
         if let adoption {
@@ -811,7 +811,7 @@ public final class BoardGroupCoordinator {
                             // Member-scoped failure: recorded so the play panel can
                             // show which board failed, in addition to the throw
                             // that aborts the whole `play()` (BOARD_GROUP_SPEC §3).
-                            self.memberStatus[captured.member.physicalBoardID] = .error(error.localizedDescription)
+                            self.memberStatus[captured.member.physicalBoardID] = .error(RinaErrorText.message(for: error))
                             throw error
                         }
                         self.memberStatus[captured.member.physicalBoardID] = .ready
@@ -896,7 +896,7 @@ public final class BoardGroupCoordinator {
                                 _ = try await captured.session.connection.requestReliable(cmd)
                             }
                         } catch {
-                            self.memberStatus[captured.member.physicalBoardID] = .error(error.localizedDescription)
+                            self.memberStatus[captured.member.physicalBoardID] = .error(RinaErrorText.message(for: error))
                             throw error
                         }
                         self.memberStatus[captured.member.physicalBoardID] = .playing
@@ -1240,7 +1240,7 @@ public final class BoardGroupCoordinator {
                 // Member-scoped re-anchor failure: recorded rather than
                 // silently swallowed, so the play panel can surface which
                 // board drifted out of sync (BOARD_GROUP_SPEC §3).
-                memberStatus[id] = .error(error.localizedDescription)
+                memberStatus[id] = .error(RinaErrorText.message(for: error))
                 // A rejected start commonly means firmware discarded this
                 // board's timeline. Demote it without marking an ownership
                 // eviction so the rejoin pass below uploads it again.
@@ -1410,7 +1410,7 @@ public final class BoardGroupCoordinator {
             registerTakeoverHandler(id: id, connection: session.connection)
         } catch {
             guard playEpoch == epoch, controlGeneration == gen else { return } // N3/B1
-            memberStatus[id] = .error(error.localizedDescription)
+            memberStatus[id] = .error(RinaErrorText.message(for: error))
         }
     }
 
@@ -1566,7 +1566,7 @@ public final class BoardGroupCoordinator {
                         return true
                     } catch {
                         guard self.playEpoch == epoch, self.controlGeneration == gen else { return false } // N3/B1
-                        self.memberStatus[id] = .error(error.localizedDescription)
+                        self.memberStatus[id] = .error(RinaErrorText.message(for: error))
                         return false
                     }
                 }
@@ -1600,7 +1600,7 @@ public final class BoardGroupCoordinator {
                 }
             } catch {
                 guard playEpoch == epoch, controlGeneration == gen else { return } // N3/B1
-                memberStatus[id] = .error(error.localizedDescription)
+                memberStatus[id] = .error(RinaErrorText.message(for: error))
             }
         }
     }
@@ -1667,7 +1667,7 @@ public final class BoardGroupCoordinator {
                                  startFrame: frame, adoption: nil)
         } catch {
             for id in fallbackParticipantIDs {
-                memberStatus[id] = .error(error.localizedDescription)
+                memberStatus[id] = .error(RinaErrorText.message(for: error))
             }
             return false
         }
@@ -1959,7 +1959,7 @@ public final class BoardGroupCoordinator {
                         return true
                     } catch {
                         guard self.playEpoch == epoch, self.controlGeneration == gen else { return false } // N3/B1
-                        self.memberStatus[id] = .error(error.localizedDescription)
+                        self.memberStatus[id] = .error(RinaErrorText.message(for: error))
                         return false
                     }
                 }
@@ -2099,7 +2099,7 @@ public final class BoardGroupCoordinator {
                     anyAccepted = true
                 } catch {
                     guard playEpoch == epoch, controlGeneration == gen else { return }
-                    memberStatus[id] = .error(error.localizedDescription)
+                    memberStatus[id] = .error(RinaErrorText.message(for: error))
                 }
             }
             guard playEpoch == epoch, controlGeneration == gen else { return }
@@ -2217,7 +2217,7 @@ public final class BoardGroupCoordinator {
                         self.memberStatus[id] = .ready
                     } catch {
                         guard self.playEpoch == epoch, self.controlGeneration == gen else { return } // N3/B1
-                        self.memberStatus[id] = .error(error.localizedDescription)
+                        self.memberStatus[id] = .error(RinaErrorText.message(for: error))
                     }
                 }
             }
@@ -2354,7 +2354,7 @@ public final class BoardGroupCoordinator {
                       session.connection.output.isCurrent(token) else { continue }
                 session.connection.output.invalidate(ifCurrent: token)
                 if let stopError {
-                    memberStatus[id] = .error(stopError.localizedDescription)
+                    memberStatus[id] = .error(RinaErrorText.message(for: stopError))
                 } else {
                     memberStatus.removeValue(forKey: id)
                 }
@@ -2423,7 +2423,7 @@ public final class BoardGroupCoordinator {
             guard session.connection.output.isCurrent(token) else { continue }
             session.connection.output.invalidate(ifCurrent: token)
             if let stopError {
-                memberStatus[id] = .error(stopError.localizedDescription)
+                memberStatus[id] = .error(RinaErrorText.message(for: stopError))
             } else {
                 memberStatus.removeValue(forKey: id)
             }

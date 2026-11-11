@@ -207,3 +207,24 @@ public enum PackedFrameParseError: Error, Sendable, Equatable {
     case wrongIntCount(Int)
     case intOutOfRange(Int)
 }
+
+extension PackedFrameParseError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .empty:
+            return NSLocalizedString("没有输入画面数据", comment: "packed frame text is empty")
+        case .invalidFormat:
+            return NSLocalizedString("画面数据格式无效", comment: "packed frame text is not valid hex, base64 or integers")
+        case .wrongIntCount(let count):
+            return String(
+                format: NSLocalizedString("画面数据需要 47 个整数，实际是 %lld 个", comment: "packed frame integer list has the wrong length; argument is the actual count"),
+                count
+            )
+        case .intOutOfRange(let value):
+            return String(
+                format: NSLocalizedString("画面数据里的 %lld 超出了 0 到 255 的范围", comment: "packed frame integer out of byte range; argument is the offending value"),
+                value
+            )
+        }
+    }
+}

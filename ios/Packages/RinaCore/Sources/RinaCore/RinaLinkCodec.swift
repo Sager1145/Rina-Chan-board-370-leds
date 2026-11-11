@@ -62,7 +62,10 @@ extension RinaLinkEncoder.EncodingError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .payloadTooLarge(let actual, let maximum):
-            return "RinaLink payload is \(actual) bytes; the maximum is \(maximum) bytes"
+            return String(
+                format: NSLocalizedString("单次发送的数据过大：%lld 字节，上限 %lld 字节", comment: "RinaLink payload too large: actual bytes, maximum bytes"),
+                actual, maximum
+            )
         }
     }
 }

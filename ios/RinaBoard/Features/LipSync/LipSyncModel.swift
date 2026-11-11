@@ -183,7 +183,7 @@ final class LipSyncModel {
             library = try RinaResources.partsLibrary(bundle: bundle)
         } catch {
             loadError = String(format: NSLocalizedString("表情部件加载失败：%@", comment: "parts library load failed"),
-                               error.localizedDescription)
+                               error.rinaUserMessage)
         }
         self.library = library
         self.loadError = loadError
@@ -356,7 +356,7 @@ final class LipSyncModel {
             }
             outputSession = nil
             outputConnection = nil
-            errorMessage = error.localizedDescription
+            errorMessage = error.rinaUserMessage
             return
         }
 
@@ -516,7 +516,7 @@ final class LipSyncModel {
         } catch {
             forgetLastSentFrame(ifStill: submission.frame)
             errorMessage = String(format: NSLocalizedString("发送失败：%@", comment: "frame send failed"),
-                                  error.localizedDescription)
+                                  error.rinaUserMessage)
         }
     }
 
@@ -560,7 +560,7 @@ final class LipSyncModel {
                 try await self.capture.start()
             } catch {
                 guard self.calibrationGeneration == attempt else { return }
-                self.errorMessage = error.localizedDescription
+                self.errorMessage = error.rinaUserMessage
                 self.calibratingVowel = nil
                 return
             }
