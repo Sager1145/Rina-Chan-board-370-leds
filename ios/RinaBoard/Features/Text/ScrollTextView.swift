@@ -746,6 +746,10 @@ private struct TextPlaybackProgressBar: View {
     var model: TextViewModel
     var connection: BoardConnection
     var isConnected: Bool
+    /// Pending seek for a value change no drag brackets (a keyboard adjust),
+    /// which would otherwise leave the scrub stuck; replaced on every such
+    /// change and cancelled by a real drag, which commits on its own release.
+    @State private var unbracketedCommitTask: Task<Void, Never>?
 
     var body: some View {
         #if DEBUG
@@ -756,10 +760,17 @@ private struct TextPlaybackProgressBar: View {
             Slider(
                 value: Binding(
                     get: { Double(model.scrubIndex ?? model.displayIndex) },
-                    set: { model.updateScrub(toFrame: Int($0.rounded())) }
+                    set: {
+                        model.updateScrub(toFrame: Int($0.rounded()))
+                        // A drag may report its first value before its begin
+                        // callback, hence the delay rather than a direct seek.
+                        if !model.isScrubbing { scheduleUnbracketedCommit() }
+                    }
                 ),
                 in: 0...Double(max(1, model.frameCount - 1)),
                 onEditingChanged: { editing in
+                    unbracketedCommitTask?.cancel()
+                    unbracketedCommitTask = nil
                     if editing {
                         model.beginScrub()
                     } else if let commit = model.endScrub() {
@@ -792,6 +803,19 @@ private struct TextPlaybackProgressBar: View {
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
+        }
+        .onDisappear {
+            unbracketedCommitTask?.cancel()
+            unbracketedCommitTask = nil
+        }
+    }
+
+    private func scheduleUnbracketedCommit() {
+        unbracketedCommitTask?.cancel()
+        unbracketedCommitTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            await model.commitUnbracketedScrub(connection: connection)
         }
     }
 

@@ -105,6 +105,10 @@ struct BoardControlCenterView: View {
     /// not buzz the phone — only the user's presses do (§42).
     @State private var controlTicks = 0
 
+    /// Mirrored into the model so board status cannot replace a hex value
+    /// that is still being typed.
+    @FocusState private var hexFieldFocused: Bool
+
     private var isConnected: Bool { connection.connectionState == .connected }
 
     /// True only while a group is targeted AND the fan-out actually has a
@@ -861,6 +865,13 @@ struct BoardControlCenterView: View {
                     .autocorrectionDisabled()
                     .submitLabel(.done)
                     .onSubmit { Task { await model.commitHexField(connection: connection) } }
+                    .focused($hexFieldFocused)
+                    .onChange(of: hexFieldFocused) { _, focused in
+                        model.hexFieldEditingChanged(focused)
+                    }
+                    // A field removed while focused may never report the loss.
+                    .onAppear { model.hexFieldEditingChanged(hexFieldFocused) }
+                    .onDisappear { model.hexFieldEditingChanged(false) }
                     .disabled(!isConnected)
                 }
                 if !model.hexFieldIsValid {

@@ -72,6 +72,35 @@ private struct PresetLiveSubmission: Sendable {
     let token: UUID
 }
 
+/// Remembers that an `AVAudioPlayer` played to its end, so the clock can tell
+/// a finished track from a player the system paused. Locked because nothing
+/// here relies on which thread AVFoundation calls the delegate on.
+private final class AudioFinishObserver: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var finished: ObjectIdentifier?
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        lock.lock()
+        finished = ObjectIdentifier(player)
+        lock.unlock()
+    }
+
+    func reset() {
+        lock.lock()
+        finished = nil
+        lock.unlock()
+    }
+
+    /// True once per finished run of `player`.
+    func consumeFinished(_ player: AVAudioPlayer) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard finished == ObjectIdentifier(player) else { return false }
+        finished = nil
+        return true
+    }
+}
+
 /// Plays an audio track locally and drives a board face from the audio
 /// player's measured position. Script/audio changes are staged and validated
 /// before replacing the active pair.
@@ -178,6 +207,10 @@ final class PresetLiveModel {
     private var lastPersistedPositionMs: Int?
     private var lastSubmittedPositionMs: Int?
     private var playbackStreamID: String?
+    /// Last position the clock read while the player was still running; nil
+    /// after a start, a seek or a loop restart.
+    @ObservationIgnored private var lastClockPositionMs: Int?
+    @ObservationIgnored private let finishObserver = AudioFinishObserver()
 
     init(bundle: Bundle = .main,
          defaults: UserDefaults = .standard,
@@ -629,6 +662,9 @@ final class PresetLiveModel {
             outputSession = nil
         }
         pausedByUser = false
+        lastClockPositionMs = nil
+        finishObserver.reset()
+        player.delegate = finishObserver
         guard player.play() else {
             deactivateSessionIfNeeded()
             suspendBoardOutput()
@@ -686,6 +722,7 @@ final class PresetLiveModel {
         guard let player else { return }
         let clamped = max(0, min(durationMs, ms))
         player.currentTime = TimeInterval(clamped) / 1000
+        lastClockPositionMs = nil
         positionMs = clamped
         savePlaybackPosition(force: true)
         currentKeyframeIndex = nil
@@ -784,12 +821,34 @@ final class PresetLiveModel {
             positionMs = now
         }
         savePlaybackPosition(force: false, atMs: now)
-        if !player.isPlaying, isPlaying {
+        if player.isPlaying {
+            lastClockPositionMs = now
+            // A finish callback delivered after the clock already handled
+            // that end (and restarted the loop) is stale; left set, it would
+            // turn a later system pause into an end of track.
+            finishObserver.reset()
+        } else if isPlaying {
+            let finished = finishObserver.consumeFinished(player)
+            guard Self.playerStoppedAtEnd(finished: finished, lastPlayingMs: lastClockPositionMs,
+                                          nowMs: now, durationMs: durationMs) else {
+                // The system stopped the player (a call, Siri, a lost audio
+                // route). Keep the position and stay resumable, exactly like
+                // `handleInterruption(.began)`, which may not have run yet.
+                positionMs = now
+                savePlaybackPosition(force: true)
+                player.pause()
+                isPlaying = false
+                clockTask?.cancel()
+                clockTask = nil
+                return
+            }
             if loops {
                 player.currentTime = 0
                 positionMs = 0
                 savePlaybackPosition(force: true, atMs: 0)
                 currentKeyframeIndex = nil
+                lastClockPositionMs = nil
+                finishObserver.reset()
                 if player.play() {
                     synchronizeFrame(atMs: 0, connection: connection, force: true)
                     return
@@ -802,6 +861,19 @@ final class PresetLiveModel {
             return
         }
         synchronizeFrame(atMs: now, connection: connection, force: false)
+    }
+
+    /// Whether a player found stopped by the clock ran to the end of its
+    /// track, as opposed to being paused by the system mid-song. The delegate
+    /// callback is the direct signal; the position checks cover a tick that
+    /// runs before that callback is delivered: the last position seen while
+    /// still playing was at the end, or the position fell back (a finished
+    /// `AVAudioPlayer` rewinds to 0, a paused one keeps its place).
+    nonisolated static func playerStoppedAtEnd(finished: Bool, lastPlayingMs: Int?,
+                                               nowMs: Int, durationMs: Int) -> Bool {
+        if finished { return true }
+        guard let lastPlayingMs else { return false }
+        return lastPlayingMs >= durationMs - 250 || nowMs < lastPlayingMs - 250
     }
 
     private func synchronizeFrame(atMs ms: Int, connection: BoardConnection, force: Bool) {

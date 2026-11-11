@@ -507,7 +507,7 @@ final class FaceLibraryModel {
         if connection.supportsConditionalFaceWrites && connection.currentFacesGeneration == nil {
             guard await reload(connection: connection) else { return .failed }
         }
-        let target = source ?? BoardFaceSaveSource(boardID: connection.boardKey,
+        var target = source ?? BoardFaceSaveSource(boardID: connection.boardKey,
                                                    generation: connection.connectionGeneration,
                                                    expectedBootId: connection.bootId,
                                                    expectedGen: connection.currentFacesGeneration)
@@ -534,26 +534,47 @@ final class FaceLibraryModel {
                     && $0.payload.name == cleanName(payload.name) && $0.payload.frameHex == payload.frameHex
                     && $0.payload.type == payload.type && Self.callsEqual($0.payload.call, payload.call)
             }
-            var operation: PendingCreate
+            var retried: PendingCreate?
             if let existing {
-                operation = pending[existing]
-                guard operation.payload.id != nil else { throw CocoaError(.fileReadCorruptFile) }
-                guard await reload(connection: connection) else { return .pending(id: operation.payload.id!) }
-                if matchesSavedPayload(operation.payload) {
+                var prior = pending[existing]
+                guard let priorID = prior.payload.id else { throw CocoaError(.fileReadCorruptFile) }
+                guard await reload(connection: connection) else { return .pending(id: priorID) }
+                if matchesSavedPayload(prior.payload) {
                     pending.remove(at: existing)
                     try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
-                    return .saved(id: operation.payload.id)
+                    return .saved(id: priorID)
                 }
-                guard face(id: operation.payload.id!, in: .board) == nil,
-                      connection.supportsConditionalFaceWrites else {
-                    errorMessage = NSLocalizedString("结果待确认或目标已改变：请检查板上表情", comment: "direct create needs reconciliation")
-                    return .pending(id: operation.payload.id!)
-                }
-                operation.source = BoardFaceSaveSource(boardID: connection.boardKey,
+                if face(id: priorID, in: .board) != nil {
+                    // The earlier create landed and its face was renamed or
+                    // redrawn since. It is confirmed, so this request is a
+                    // new face with its own id, checked against the library
+                    // generation that was just read.
+                    pending.remove(at: existing)
+                    if source == nil {
+                        target.expectedBootId = connection.bootId
+                        target.expectedGen = connection.currentFacesGeneration
+                    }
+                } else if connection.supportsConditionalFaceWrites {
+                    prior.source = BoardFaceSaveSource(boardID: connection.boardKey,
                                                        generation: connection.connectionGeneration,
                                                        expectedBootId: connection.bootId,
                                                        expectedGen: connection.currentFacesGeneration)
-                pending[existing] = operation
+                    pending[existing] = prior
+                    retried = prior
+                } else {
+                    // This firmware cannot retry the old id safely. The read
+                    // just showed it absent, so drop the entry after this
+                    // warning: the next explicit attempt creates a new face
+                    // instead of being refused forever.
+                    pending.remove(at: existing)
+                    try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
+                    errorMessage = NSLocalizedString("结果待确认或目标已改变：请检查板上表情", comment: "direct create needs reconciliation")
+                    return .pending(id: priorID)
+                }
+            }
+            let operation: PendingCreate
+            if let retried {
+                operation = retried
             } else {
                 var submitted = payload
                 submitted.id = "user_" + UUID().uuidString.lowercased()
@@ -564,9 +585,15 @@ final class FaceLibraryModel {
             try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
             let result = await saveBoardPayload(operation.payload, source: operation.source,
                                                 createOnly: true, connection: connection)
-            if case .saved = result {
-                pending.removeAll { $0.payload.id == operation.payload.id }
+            // `.failed` is definitive too (nothing was written), so only an
+            // unknown outcome keeps its entry for reconciliation.
+            if case .pending = result { return result }
+            pending.removeAll { $0.payload.id == operation.payload.id }
+            do {
                 try await pendingCreateStorage.write(JSONEncoder().encode(pending), name: "board_face_creates")
+            } catch {
+                // Keep the board's rejection reason over this cleanup error.
+                if result != .failed { throw error }
             }
             return result
         } catch {
@@ -646,6 +673,14 @@ final class FaceLibraryModel {
                     errorMessage = nil
                     return .saved(id: targetID)
                 }
+                return .failed
+            }
+            // The board refuses any other 4xx (413: library full, document
+            // too large) before it writes, so the outcome is known: report
+            // its own reason. A 5xx or a transport error stays unconfirmed.
+            if let linkError = error as? RinaLinkError,
+               let code = linkError.code, (400..<500).contains(code) {
+                errorMessage = linkError.error
                 return .failed
             }
             errorMessage = NSLocalizedString("结果待确认：请连接原面板后再次保存以核对", comment: "face save needs readback")

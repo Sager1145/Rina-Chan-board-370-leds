@@ -106,6 +106,52 @@ public final class BoardGroupStore {
         defaults.set(data, forKey: Self.defaultsKey)
     }
 
+    // MARK: - Played layout
+
+    /// The slice of the group bitmap each board was last uploaded, and for
+    /// which timeline. `GET_SCROLL_META` reports neither `viewportX` nor
+    /// `virtualWidth`, so after a relaunch this record is the only evidence
+    /// of what the boards are showing: `BoardGroupCoordinator` takes a
+    /// running scroll over without re-uploading only while the group's
+    /// current layout still gives every member the viewport recorded here.
+    public struct PlayedLayout: Codable, Equatable, Sendable {
+        public var timelineId: String
+        public var virtualWidth: Int
+        /// `viewportX` by `physicalBoardID`.
+        public var viewportXs: [String: Int]
+
+        public init(timelineId: String, virtualWidth: Int, viewportXs: [String: Int]) {
+            self.timelineId = timelineId
+            self.virtualWidth = virtualWidth
+            self.viewportXs = viewportXs
+        }
+    }
+
+    private static let playedLayoutsKey = "com.rinachan.board.groups.playedLayouts"
+
+    private func loadPlayedLayouts() -> [String: PlayedLayout] {
+        guard let data = defaults.data(forKey: Self.playedLayoutsKey),
+              let decoded = try? JSONDecoder().decode([String: PlayedLayout].self, from: data) else { return [:] }
+        return decoded
+    }
+
+    /// The layout `groupID`'s boards were last uploaded, or `nil` if none was
+    /// ever recorded. Kept apart from `groups` so recording it neither bumps
+    /// `layoutRevision` nor invalidates views observing the group list.
+    public func playedLayout(groupID: UUID) -> PlayedLayout? {
+        loadPlayedLayouts()[groupID.uuidString]
+    }
+
+    /// Records what a successful group start uploaded. Entries of groups that
+    /// no longer exist are dropped on the way.
+    public func recordPlayedLayout(_ layout: PlayedLayout, groupID: UUID) {
+        let liveIDs = Set(groups.map(\.id.uuidString))
+        var all = loadPlayedLayouts().filter { liveIDs.contains($0.key) }
+        all[groupID.uuidString] = layout
+        guard let data = try? JSONEncoder().encode(all) else { return }
+        defaults.set(data, forKey: Self.playedLayoutsKey)
+    }
+
     public enum GroupError: Error, Sendable, Equatable {
         case tooManyMembers
         case duplicateMember

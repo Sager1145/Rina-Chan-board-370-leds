@@ -226,13 +226,22 @@ public final class BoardGroupCoordinator {
     public init(
         store: BoardGroupStore,
         sessions: BoardSessionStore,
-        nowUs: @escaping @Sendable () -> Int64 = { Int64(DispatchTime.now().uptimeNanoseconds / 1000) },
+        nowUs: @escaping @Sendable () -> Int64 = { BoardGroupCoordinator.continuousNowUs() },
         loadFont: @escaping () async throws -> ArkPixelFont = BoardGroupCoordinator.loadDefaultFont
     ) {
         self.store = store
         self.sessions = sessions
         self.nowUs = nowUs
         self.loadFont = loadFont
+    }
+
+    /// The default `nowUs`: monotonic microseconds that keep counting while
+    /// the phone sleeps (`CLOCK_MONOTONIC_RAW`, i.e. `mach_continuous_time`).
+    /// The boards' clocks never stop, so an uptime clock (`DispatchTime`,
+    /// which pauses during sleep) would leave the group anchor and every
+    /// cached clock offset behind the boards by the time slept.
+    public nonisolated static func continuousNowUs() -> Int64 {
+        Int64(clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) / 1000)
     }
 
     public static func loadDefaultFont() throws -> ArkPixelFont {
@@ -457,9 +466,12 @@ public final class BoardGroupCoordinator {
     /// connected and report the same group-timed timeline, text, length and
     /// rate; the text is rebuilt with the current layout and must produce the
     /// same frame count. On success the group is playing (or paused, if the
-    /// boards were) from where the boards are, with no re-upload. Returns
-    /// whether it adopted; a no-op while this coordinator already drives or
-    /// is starting anything.
+    /// boards were) from where the boards are — with no re-upload while the
+    /// store's `PlayedLayout` proves every board still holds the viewport
+    /// the current layout gives it, else re-uploaded with the current layout
+    /// (a reorder made while orphaned changes nothing the boards report).
+    /// Returns whether it adopted; a no-op while this coordinator already
+    /// drives or is starting anything.
     @discardableResult
     public func adoptRunningScroll(group: BoardGroup, loop: Bool) async -> Bool {
         guard !isStarting, !(isPlaying || isPaused),
@@ -506,13 +518,34 @@ public final class BoardGroupCoordinator {
             try await startGroup(
                 group: live, text: text, fps: fps, loop: loop, startFrame: 0,
                 adoption: Adoption(timelineId: timelineId, frameCount: frameCount,
-                                   frameIndex: first.frameIndex ?? 0, readAtPhoneUs: wasPaused ? .max : readAt)
+                                   frameIndex: first.frameIndex ?? 0, readAtPhoneUs: wasPaused ? .max : readAt,
+                                   reupload: !playedLayoutMatches(live, timelineId: timelineId))
             )
         } catch {
             return false
         }
-        if wasPaused { await pause(group: live) }
+        // Hold the frame the boards were paused on (the new anchor's start
+        // frame), not wherever the clock has run to since that anchor.
+        if wasPaused { await pause(group: live, atFrame: currentAnchor?.startFrame) }
         return isPlaying || isPaused
+    }
+
+    /// Whether `group`'s current layout gives every member exactly the
+    /// viewport recorded for the upload of `timelineId`. Scroll meta carries
+    /// no viewport, so without a matching record (reordered or re-gapped
+    /// while orphaned, uploaded by another install, or recorded before this
+    /// existed) the boards' slices are unknown and must be uploaded again.
+    private func playedLayoutMatches(_ group: BoardGroup, timelineId: String) -> Bool {
+        guard let played = store.playedLayout(groupID: group.id), played.timelineId == timelineId,
+              let layout = try? StitchedScreenLayout(slotCount: group.members.count, gapsAfter: group.gapsAfter)
+        else { return false }
+        let virtualWidth = group.mode == .mirror ? MatrixGeometry.cols : layout.virtualWidth
+        guard played.virtualWidth == virtualWidth, played.viewportXs.count == group.members.count else { return false }
+        for (slot, member) in group.members.enumerated() {
+            guard played.viewportXs[member.physicalBoardID] == viewportX(for: slot, mode: group.mode, layout: layout)
+            else { return false }
+        }
+        return true
     }
 
     /// Coalescing, caller-cancellation-immune wrapper around
@@ -570,6 +603,10 @@ public final class BoardGroupCoordinator {
         /// when that was read, so the anchor can be projected forward.
         let frameIndex: Int
         let readAtPhoneUs: Int64
+        /// The boards' viewports can't be proven to match the current
+        /// layout: keep the projected position, but upload the bitmap again
+        /// (as a new timeline) instead of trusting what they hold.
+        let reupload: Bool
     }
 
     private func startGroup(
@@ -732,7 +769,8 @@ public final class BoardGroupCoordinator {
             return true
         }
 
-        let timelineId = adoption?.timelineId ?? UUID().uuidString
+        let keepsUploadedTimeline = adoption?.reupload == false
+        let timelineId = (keepsUploadedTimeline ? adoption?.timelineId : nil) ?? UUID().uuidString
         let capable60 = online.allSatisfy { $0.session.connection.supports(.group60Fps) }
         let intervalMs = groupIntervalMs(forFps: fps, capable: capable60)
         let effectiveFps = groupFps(forIntervalMs: intervalMs)
@@ -746,9 +784,9 @@ public final class BoardGroupCoordinator {
         startingGroupID = capturedGroupID
         do {
             // Upload concurrently, each board's own (already-claimed) output
-            // lease. Skipped when adopting: every board already holds this
-            // timeline.
-            if adoption == nil {
+            // lease. Skipped when adopting a timeline every board is known to
+            // hold with this layout's viewports.
+            if !keepsUploadedTimeline {
             // One encode for every member. Viewport meta still differs per board.
             let bitmapBytes = bitmap.packedBytes()
             try await withThrowingTaskGroup(of: Void.self) { taskGroup in
@@ -879,6 +917,16 @@ public final class BoardGroupCoordinator {
             playState = PlayState(
                 bitmap: bitmap, layout: layout, mode: mode, virtualWidth: virtualWidth, fps: fps,
                 timelineId: timelineId, sourceText: text, loop: loop, memberOrder: group.members
+            )
+            // Persisted so a relaunched app can tell whether the boards'
+            // viewports still match the layout before adopting this scroll.
+            var playedViewportXs: [String: Int] = [:]
+            for (slot, member) in group.members.enumerated() {
+                playedViewportXs[member.physicalBoardID] = viewportX(for: slot, mode: mode, layout: layout)
+            }
+            store.recordPlayedLayout(
+                .init(timelineId: timelineId, virtualWidth: virtualWidth, viewportXs: playedViewportXs),
+                groupID: capturedGroupID
             )
             participants.removeAll()
             for captured in online {
@@ -1623,7 +1671,10 @@ public final class BoardGroupCoordinator {
             }
             return false
         }
-        if paused { await pauseCore(group: group) }
+        // `atFrame`: the restart's anchor may already lie in the past by the
+        // time every board has acknowledged `group_start`; a clock-derived
+        // pause frame would then land past the requested one.
+        if paused { await pauseCore(group: group, atFrame: frame) }
         return paused ? isPaused : isPlaying
     }
 
@@ -1840,9 +1891,14 @@ public final class BoardGroupCoordinator {
     /// member whose request fails is recorded `.error`; the others still end
     /// paused. Same live-participant/epoch/revision guards as `reanchor` (C1/N3).
     public func pause(group: BoardGroup) async {
+        await pause(group: group, atFrame: nil)
+    }
+
+    /// `pause(group:)` holding `heldFrame` instead of the clock-derived frame.
+    private func pause(group: BoardGroup, atFrame heldFrame: Int?) async {
         guard !isControlBusy else { return } // N5: ignore an overlapping pause tap
         isControlBusy = true
-        await pauseCore(group: group)
+        await pauseCore(group: group, atFrame: heldFrame)
         isControlBusy = false
         drainPendingStep(group: group)
     }

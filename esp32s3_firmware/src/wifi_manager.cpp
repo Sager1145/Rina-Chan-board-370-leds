@@ -224,7 +224,82 @@ bool ssidVisibleInScan(const String& ssid) {
     return false;
 }
 
+const String& profileSsid(const String& profile) {
+    return profile == "hotspot" ? g_hotspotSsid : g_homeSsid;
+}
+
+// 802.11 / WPA byte limits, matching wifiManagerSetAp: SSID 1..32, passphrase
+// 8..63 (or a 64-hex PSK), empty for an open network. Longer values can never
+// associate and would overflow the fixed-size status documents.
+bool stationCredentialsValid(const String& ssid, const String& password) {
+    return !ssid.isEmpty() && ssid.length() <= 32 &&
+           (password.isEmpty() || (password.length() >= 8 && password.length() <= 64));
+}
+
+// Scan replies are JSON, and ArduinoJson writes bytes >= 0x80 and most control
+// bytes unescaped: one legacy-encoded (e.g. GBK) SSID would make the whole
+// reply undecodable for a strict client. Only well-formed UTF-8 without
+// control characters is safe to embed.
+bool ssidIsJsonSafe(const String& ssid) {
+    const uint8_t* s = reinterpret_cast<const uint8_t*>(ssid.c_str());
+    const size_t n = ssid.length();
+    size_t i = 0;
+    while (i < n) {
+        const uint8_t c = s[i];
+        if (c < 0x20 || c == 0x7F)
+            return false;
+        if (c < 0x80) {
+            ++i;
+            continue;
+        }
+        size_t extra = 0;
+        uint32_t cp = 0;
+        uint32_t minCp = 0;
+        if ((c & 0xE0) == 0xC0) {
+            extra = 1;
+            cp = c & 0x1F;
+            minCp = 0x80;
+        } else if ((c & 0xF0) == 0xE0) {
+            extra = 2;
+            cp = c & 0x0F;
+            minCp = 0x800;
+        } else if ((c & 0xF8) == 0xF0) {
+            extra = 3;
+            cp = c & 0x07;
+            minCp = 0x10000;
+        } else {
+            return false;
+        }
+        if (n - i <= extra)
+            return false;
+        for (size_t k = 1; k <= extra; ++k) {
+            if ((s[i + k] & 0xC0) != 0x80)
+                return false;
+            cp = (cp << 6) | (s[i + k] & 0x3F);
+        }
+        // Reject overlong forms, surrogates and values beyond U+10FFFF.
+        if (cp < minCp || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
+            return false;
+        i += extra + 1;
+    }
+    return true;
+}
+
+// Abandon an in-flight join. WiFi.disconnect() only acts on an associated
+// station, so a join that is still failing must be stopped in the driver, and
+// the framework must not re-issue it from the pending failure event.
+void stopStationJoin() {
+#ifdef ARDUINO_ARCH_ESP32
+    WiFi.setAutoReconnect(false);
+    esp_wifi_disconnect();
+#endif
+    WiFi.disconnect(false, false);
+}
+
 void beginProfile(const String& profile, const String& ssid, const String& pass) {
+#ifdef ARDUINO_ARCH_ESP32
+    WiFi.setAutoReconnect(true); // stopStationJoin() turns it off between attempts
+#endif
     WiFi.begin(ssid.c_str(), pass.c_str());
     g_connectingProfile = profile;
     g_staTrying = true;
@@ -291,6 +366,42 @@ void evaluateScanResults() {
         // Nothing configured is visible: sta_or_ap keeps the SoftAP up, sta
         // just keeps retrying; both cases wait for the retry timer below.
         g_lastStaRetryMs = millis();
+        // A still-associated station is reconciled by wifiManagerService():
+        // one scan that missed the joined network must not blank its profile.
+        if (WiFi.status() != WL_CONNECTED)
+            setActiveProfile("none");
+    }
+}
+
+// The link can be up outside a manager-tracked attempt (a join that completed
+// after the watchdog, or credentials replaced while associated). Keep
+// activeProfile equal to the profile that owns the joined SSID, and leave a
+// network whose credentials are no longer stored so the retry timer can move
+// the board to a configured one.
+void reconcileActiveProfile() {
+    // Polled, not per loop() tick: WiFi.SSID() queries the driver. A deferred
+    // forget/mode change owns the station until its reply grace has passed.
+    static bool checked = false;
+    static uint32_t lastCheckMs = 0;
+    if (g_deferredHomeForget || g_deferredHotspotForget || g_deferredModeApply ||
+        (checked && !millisElapsed(millis(), lastCheckMs, 1000)))
+        return;
+    checked = true;
+    lastCheckMs = millis();
+    const String joined = WiFi.SSID();
+    if (joined.isEmpty())
+        return; // no AP record to compare against (link state in flux)
+    const bool homeMatch = !g_homeSsid.isEmpty() && joined == g_homeSsid;
+    const bool hotspotMatch = !g_hotspotSsid.isEmpty() && joined == g_hotspotSsid;
+    if (hotspotMatch && g_activeProfile == "hotspot")
+        return; // both profiles share this SSID: keep the current owner
+    if (homeMatch) {
+        setActiveProfile("home");
+    } else if (hotspotMatch) {
+        setActiveProfile("hotspot");
+    } else {
+        WiFi.disconnect(false, false);
+        g_lastStaRetryMs = millis();
         setActiveProfile("none");
     }
 }
@@ -341,6 +452,16 @@ void wifiManagerBegin() {
     g_homePass = readStringOrDefault(prefs, "pass", "");
     g_hotspotSsid = readStringOrDefault(prefs, "hssid", "");
     g_hotspotPass = readStringOrDefault(prefs, "hpass", "");
+    // Firmware before the length check could persist an SSID that cannot be
+    // joined and overflows the status documents; ignore such a stored profile.
+    if (g_homeSsid.length() > 32) {
+        g_homeSsid = "";
+        g_homePass = "";
+    }
+    if (g_hotspotSsid.length() > 32) {
+        g_hotspotSsid = "";
+        g_hotspotPass = "";
+    }
     String storedApSsid = readStringOrDefault(prefs, "apssid", "");
     if (storedApSsid.isEmpty() || storedApSsid == LEGACY_AP_SSID) {
         // Pre-identity firmware shared one SSID across every board; migrate to
@@ -397,7 +518,10 @@ void wifiManagerService() {
         // after the timeout (SoftAP is already up); `sta` retries via the
         // same WIFI_STA_RETRY_MS timer below.
         if (g_staTrying) {
-            if (WiFi.status() == WL_CONNECTED) {
+            // WL_CONNECTED alone may still be the previous network while the
+            // driver switches; success means the attempted SSID is joined.
+            if (WiFi.status() == WL_CONNECTED &&
+                WiFi.SSID() == profileSsid(g_connectingProfile)) {
                 g_staTrying = false;
                 if (g_connectingProfile == "home")
                     g_homeFailCount = 0;
@@ -412,14 +536,23 @@ void wifiManagerService() {
                     g_homeFailCount++;
                 else if (g_connectingProfile == "hotspot" && g_hotspotFailCount < 255)
                     g_hotspotFailCount++;
+                // Stop the driver too (its stored config is kept): its own
+                // reconnect loop would otherwise keep retrying the failed join
+                // on the radio the fallback SoftAP shares. The manager owns
+                // every retry.
+                stopStationJoin();
                 setActiveProfile("none");
                 markChanged(); // dropped into AP fallback / will retry
             }
-        } else if (!g_staSelectionPending && staConfigured && WiFi.status() != WL_CONNECTED &&
+        } else if (!g_staSelectionPending && staConfigured &&
                    (g_mode == "sta" || g_mode == "sta_or_ap")) {
-            if (millisReached(millis(), g_lastStaRetryMs + WIFI_STA_RETRY_MS)) {
-                g_lastStaRetryMs = millis();
-                startStaSelection();
+            if (WiFi.status() != WL_CONNECTED) {
+                if (millisReached(millis(), g_lastStaRetryMs + WIFI_STA_RETRY_MS)) {
+                    g_lastStaRetryMs = millis();
+                    startStaSelection();
+                }
+            } else {
+                reconcileActiveProfile();
             }
         }
 
@@ -570,6 +703,9 @@ bool wifiManagerScanResultReady() {
 
 void wifiManagerGetScanJson(JsonArray out) {
     for (uint8_t i = 0; i < g_scanResultCount; i++) {
+        // Skip rather than rewrite: a rewritten name could not be joined.
+        if (!ssidIsJsonSafe(g_scanResults[i].ssid))
+            continue;
         JsonObject o = out.createNestedObject();
         o["ssid"] = g_scanResults[i].ssid;
         o["rssi"] = g_scanResults[i].rssi;
@@ -578,7 +714,7 @@ void wifiManagerGetScanJson(JsonArray out) {
 }
 
 bool wifiManagerSetCredentials(const String& ssid, const String& password) {
-    if (ssid.isEmpty())
+    if (!stationCredentialsValid(ssid, password))
         return false;
     // A replacement supersedes a deferred forget of this profile. Never let
     // the old clear erase the replacement driver's credentials on a later tick.
@@ -612,7 +748,7 @@ void wifiManagerClearCredentials(bool deferRadio) {
 }
 
 bool wifiManagerSetHotspotCredentials(const String& ssid, const String& password) {
-    if (ssid.isEmpty())
+    if (!stationCredentialsValid(ssid, password))
         return false;
     g_deferredHotspotForget = false;
     g_deferredHotspotSsid = "";
@@ -691,12 +827,12 @@ void wifiManagerFactoryReset() {
     g_staSelectionPending = false;
     // WiFi.begin() also stored the last STA credentials in the IDF's own NVS;
     // erasing them needs the STA interface up (applyMode() drops it again).
-    if (!(WiFi.getMode() & WIFI_MODE_STA))
-        WiFi.enableSTA(true);
-    WiFi.disconnect(false, true /* eraseap */);
+    // begin(false) waits for STA_STARTED; enableSTA(true) alone does not.
+    const bool driverErased = WiFi.STA.begin(false) && WiFi.disconnect(false, true /* eraseap */);
     applyMode();
     markChanged();
-    RLOG_INFO("WIFI", "event=factory_reset prefs_cleared=%d", cleared ? 1 : 0);
+    RLOG_INFO("WIFI", "event=factory_reset prefs_cleared=%d driver_erased=%d",
+              cleared ? 1 : 0, driverErased ? 1 : 0);
 }
 
 bool wifiManagerSetAp(const String& ssid, const String& password, const char* ip) {

@@ -15,6 +15,16 @@ public struct RinaLinkError: Error, Codable, Equatable, Sendable {
         self.code = code
         self.expectedOffset = expectedOffset
     }
+
+    /// An error frame is a failure whatever its body says, so a reply that
+    /// omits `ok` still decodes and keeps the board's own message.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false
+        error = try container.decode(String.self, forKey: .error)
+        code = try container.decodeIfPresent(Int.self, forKey: .code)
+        expectedOffset = try container.decodeIfPresent(Int.self, forKey: .expectedOffset)
+    }
 }
 
 extension RinaLinkError: LocalizedError {

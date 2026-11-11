@@ -7,6 +7,7 @@
 #include "sync.h"
 #include "psram_json.h"
 #include "expression_parts.h"
+#include "scroll_session.h"
 #include <algorithm>
 #include <new>
 #include <utility>
@@ -55,7 +56,17 @@ bool writeBytesToFileAtomic(const char* path, const uint8_t* bytes, size_t size)
     withStorageLock([&]() {
         file.flush();
         file.close();
-        committed = accepted == size && LittleFS.rename(tempPath, path);
+        // flush()/close() cannot report a failed commit, so confirm the temp
+        // file holds every byte before it replaces the previous good file.
+        bool intact = false;
+        if (accepted == size) {
+            File check = LittleFS.open(tempPath, "r");
+            if (check) {
+                intact = check.size() == size;
+                check.close();
+            }
+        }
+        committed = intact && LittleFS.rename(tempPath, path);
         if (!committed) LittleFS.remove(tempPath);
     });
     return committed;
@@ -171,7 +182,16 @@ bool saveRuntimeSettings() {
     DynamicJsonDocument doc(512);
     doc["format"] = "rina_runtime_settings_v1";
     doc["version"] = 1;
-    doc["mode"] = runtimeState().mode;
+    // A text scroll started from auto holds a transient "manual" until it
+    // stops (or until the blank-then-restore that follows the stop fires).
+    // Persist the mode the board returns to, not that placeholder.
+    const bool returnsToAuto = scrollSessionGetRestoreAuto() ||
+                               (runtimeState().deferredFaceRestoreActive &&
+                                runtimeState().deferredFaceRestoreAutoMode);
+    if (returnsToAuto)
+        doc["mode"] = "auto";
+    else
+        doc["mode"] = runtimeState().mode;
     doc["autoIntervalMs"] = runtimeState().autoIntervalMs;
     doc["deviceName"] = runtimeState().deviceName;
     doc["updatedAtMs"] = millis();

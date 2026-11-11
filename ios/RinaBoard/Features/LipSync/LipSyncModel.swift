@@ -146,6 +146,10 @@ final class LipSyncModel {
     @ObservationIgnored private var sender: LatestValueSender<LipSyncSubmission>?
     @ObservationIgnored private weak var lastConnection: BoardConnection?
     private var outputSession: UUID?
+    /// The board `outputSession` was begun on. `stop` closes the mouth
+    /// there, whichever connection its caller happens to hold: the watch can
+    /// start lip sync on a board that is not the phone's active one.
+    @ObservationIgnored private weak var outputConnection: BoardConnection?
     private var streamID: String?
     private let defaults: UserDefaults
     private var isAcquiringOutput = false
@@ -341,6 +345,7 @@ final class LipSyncModel {
         defaults.set(streamID, forKey: Key.streamID)
         isAcquiringOutput = true
         outputSession = connection.output.begin(.lipSync)
+        outputConnection = connection
         isAcquiringOutput = false
         do {
             try await capture.start()
@@ -350,6 +355,7 @@ final class LipSyncModel {
                 connection.output.invalidate()
             }
             outputSession = nil
+            outputConnection = nil
             errorMessage = error.localizedDescription
             return
         }
@@ -384,7 +390,9 @@ final class LipSyncModel {
     ///
     /// `connection` is optional because stopping must never depend on the
     /// board still being there: a disconnect is one of the reasons to stop,
-    /// and the microphone has to be released either way.
+    /// and the microphone has to be released either way. The board that gets
+    /// closed is the one lip sync was started on; `connection` only matters
+    /// when that is unknown.
     func stop(connection: BoardConnection? = nil) {
         // Reclaiming our previous lease invokes its stop handler synchronously.
         // The old capture is already stopped; keep this new start alive.
@@ -392,11 +400,13 @@ final class LipSyncModel {
         startGeneration = UUID()
         cancelCalibration()
         sender?.cancel()
+        let board = outputConnection ?? connection
+        outputConnection = nil
         guard isRunning else {
             let token = outputSession
             outputSession = nil
-            if let connection, let token, connection.output.isCurrent(token) {
-                connection.output.invalidate()
+            if let board, let token, board.output.isCurrent(token) {
+                board.output.invalidate()
             }
             return
         }
@@ -417,8 +427,8 @@ final class LipSyncModel {
         // app's preview. `lastSentFrame` is cleared first so the send gate
         // treats this as a change even if a closed mouth was already sent.
         lastSentFrame = nil
-        if let connection {
-            push(previewFrame, connection: connection, closing: true)
+        if let board {
+            push(previewFrame, connection: board, closing: true)
         }
         outputSession = nil
     }

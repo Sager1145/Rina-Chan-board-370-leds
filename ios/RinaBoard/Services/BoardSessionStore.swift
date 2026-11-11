@@ -120,6 +120,15 @@ public final class BoardSession: Identifiable {
         return host != "0.0.0.0" && host != "255.255.255.255"
     }
 
+    /// A Bonjour-backed link dials its resolved endpoint and carries a storage
+    /// label (`bonjour:…`, or a saved board's id) in `.wifi(host:)`. Only a
+    /// string that can be dialed as a hostname or address is an endpoint.
+    static func isDialableHost(_ host: String) -> Bool {
+        guard !host.isEmpty, host != "0.0.0.0", UUID(uuidString: host) == nil,
+              host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return false }
+        return !["bonjour:", "ble:", "hotspot:"].contains { host.hasPrefix($0) }
+    }
+
     private func rememberCurrentTransportIdentity() {
         if let peripheralID = bleTransport.peripheralIdentifier?.uuidString {
             aliases.insert(peripheralID)
@@ -127,7 +136,7 @@ public final class BoardSession: Identifiable {
         if connection.connectionState == .connected,
            case .wifi(let host, let port) = connection.transportKind {
             aliases.insert(host)
-            if !host.isEmpty, host != "0.0.0.0", port > 0,
+            if Self.isDialableHost(host), port > 0,
                let identity = connection.boardIdentity {
                 verifiedLocalEndpoint = (host: host, port: port, identity: identity)
             }

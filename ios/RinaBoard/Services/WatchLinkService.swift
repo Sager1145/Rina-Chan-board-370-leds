@@ -54,9 +54,19 @@ final class WatchLinkService {
     /// (cleared as soon as a snapshot carrying it goes out), so dismissing
     /// the alert there is final.
     private var lastCommandError: String?
-    /// The board lip sync was started on from the watch, so a later stop
-    /// closes *that* mouth even after the watch has retargeted.
-    private weak var watchLipSyncConnection: BoardConnection?
+
+    /// What a watch command has just set on a directly-driven board. A
+    /// command's reply does not update `BoardConnection.status` — only the
+    /// status event that follows does — so for the same two seconds the
+    /// phone's own Control Center overrides use, these stand in for it.
+    private struct DirectOverride {
+        var mode: String?
+        var colorHex: String?
+        var faceIndex: Int?
+        var until: Date = .distantPast
+    }
+    private var directOverrides: [ObjectIdentifier: DirectOverride] = [:]
+    private var directOverrideExpiry: Task<Void, Never>?
 
     init(deps: Dependencies) {
         self.deps = deps
@@ -70,7 +80,7 @@ final class WatchLinkService {
         guard WCSession.isSupported(), session == nil else { return }
         let session = WCSession.default
         self.session = session
-        relay.onPayload = { [weak self] data, reply in
+        relay.onPayload = { [weak self] data, targetID, reply in
             guard let command = try? WatchLinkCodec.decode(WatchCommand.self, from: data) else {
                 reply?(Data())
                 return
@@ -82,12 +92,12 @@ final class WatchLinkService {
                     // and outlive WatchConnectivity's reply timeout: answer
                     // now, and let the result reach the watch as a push.
                     reply?((try? WatchLinkCodec.encode(self.snapshot())) ?? Data())
-                    await self.handle(command)
+                    await self.handle(command, shownTargetID: targetID)
                 } else {
                     // Everything else replies with the state *after* the
                     // command, so the watch's optimistic toggle/value is
                     // confirmed rather than overwritten by a stale snapshot.
-                    await self.handle(command)
+                    await self.handle(command, shownTargetID: targetID)
                     reply?((try? WatchLinkCodec.encode(self.snapshot())) ?? Data())
                     self.lastCommandError = nil
                 }
@@ -259,16 +269,19 @@ final class WatchLinkService {
             : (renderer?.brightness ?? RinaLinkConstants.brightnessDefault)
         let intervalSeconds = usesPhoneDrafts ? model.autoIntervalDraft
             : Double(renderer?.autoIntervalMs ?? RinaLinkConstants.autoIntervalDefaultMs) / 1000
-        let colorHex = usesPhoneDrafts ? model.colorHexDraft : (renderer?.color ?? model.colorHexDraft)
+        let pending = usesPhoneDrafts ? nil : directOverride(for: connection)
+        let colorHex = usesPhoneDrafts ? model.colorHexDraft
+            : (pending?.colorHex ?? renderer?.color ?? model.colorHexDraft)
         let isAuto: Bool
         if groupSynced {
             isAuto = deps.groupAutoCycler.isRunning
         } else if usesPhoneDrafts {
             isAuto = model.isAutoMode(status: status)
         } else {
-            isAuto = renderer?.mode == "auto"
+            isAuto = (pending?.mode ?? renderer?.mode) == "auto"
         }
-        let faceIndex = usesPhoneDrafts ? model.effectiveFaceIndex(status: status) : renderer?.autoFaceIndex
+        let faceIndex = usesPhoneDrafts ? model.effectiveFaceIndex(status: status)
+            : (pending?.faceIndex ?? renderer?.autoFaceIndex)
 
         let controls = WatchBoardSnapshot.Controls(
             brightnessRaw: brightness,
@@ -331,7 +344,9 @@ final class WatchLinkService {
 
     // MARK: Commands
 
-    func handle(_ command: WatchCommand) async {
+    /// `shownTargetID` is the target the watch had on screen when it sent
+    /// the command (`nil` from a watch build that does not say).
+    func handle(_ command: WatchCommand, shownTargetID: String? = nil) async {
         lastCommandError = nil
         if case .selectTarget(let id) = command {
             selectedTargetID = id
@@ -343,6 +358,11 @@ final class WatchLinkService {
         // deleted): the selection has just been reset, and this command was
         // never meant for the board it would now land on.
         guard resolved else { return }
+        // Usually that reset has already been consumed by `snapshot()` (the
+        // observation runs as soon as the board drops), so `resolved` alone
+        // cannot tell: until the new snapshot reaches the watch, its commands
+        // still name the old target.
+        if let shownTargetID, shownTargetID != selectedTargetID { return }
         switch command {
         case .requestState, .selectTarget:
             return
@@ -359,7 +379,7 @@ final class WatchLinkService {
                           phone: { model, c, synced in
                               await model.step(face: direction, connection: c, groupSynced: synced, cycler: self.deps.groupAutoCycler)
                           },
-                          direct: { c in try await Self.step(direction: direction, on: c) })
+                          direct: { c in try await self.step(direction: direction, on: c) })
         case .setAutoMode(let enabled):
             if enabled, case .direct(_, .some(_)) = route {
                 lastCommandError = String(localized: "多板组未同步时无法从手表开启自动播放")
@@ -369,7 +389,7 @@ final class WatchLinkService {
                           phone: { model, c, synced in
                               await model.applyAutoMode(enabled, connection: c, groupSynced: synced, cycler: self.deps.groupAutoCycler)
                           },
-                          direct: { c in try await Self.setAutoMode(enabled, on: c) })
+                          direct: { c in try await self.setAutoMode(enabled, on: c) })
         case .setAutoInterval(let seconds):
             await forEach(route,
                           phone: { model, c, _ in model.setAutoInterval(seconds, connection: c) },
@@ -383,7 +403,11 @@ final class WatchLinkService {
             let normalized = RGBHex.formatHex(r: r, g: g, b: b)
             await forEach(route,
                           phone: { model, c, _ in await model.setColor(hex: normalized, connection: c) },
-                          direct: { c in _ = try await c.command(.setColor(hex: normalized)) })
+                          direct: { c in
+                              try await self.overriding(c, { $0.colorHex = normalized }) {
+                                  _ = try await c.command(.setColor(hex: normalized))
+                              }
+                          })
         case .setScrollFps(let fps):
             let clamped = Self.clamp(fps, RinaLinkConstants.scrollFpsMin, RinaLinkConstants.scrollFpsMax)
             if case .direct(_, let group?) = route, groupScrollActive(group) {
@@ -419,23 +443,17 @@ final class WatchLinkService {
                 lastCommandError = String(localized: "多板组未同步时无法从手表开始口型同步")
                 return
             }
-            if deps.lipSync.isRunning { deps.lipSync.stop(connection: runningLipSyncConnection) }
-            watchLipSyncConnection = connection
+            // `LipSyncModel` closes the mouth on the board it was started
+            // on, whoever started it and wherever the watch points now.
+            if deps.lipSync.isRunning { deps.lipSync.stop() }
             await deps.lipSync.start(connection: connection)
         case .lipSyncStop:
-            deps.lipSync.stop(connection: runningLipSyncConnection)
-            watchLipSyncConnection = nil
+            deps.lipSync.stop()
         case .setLipSyncSensitivity(let db):
             guard deps.lipSync.canEditOptions else { return }
             deps.lipSync.sensitivityDb = Float(min(Self.sensitivityRange.upperBound,
                                                    max(Self.sensitivityRange.lowerBound, db)))
         }
-    }
-
-    /// Where the running lip sync is putting its mouth: the board the watch
-    /// started it on, or the phone's active board when the phone started it.
-    private var runningLipSyncConnection: BoardConnection {
-        watchLipSyncConnection ?? deps.sessions.active.connection
     }
 
     private func lipSyncConnection(for route: Route) -> BoardConnection? {
@@ -496,14 +514,51 @@ final class WatchLinkService {
         min(high, max(low, value))
     }
 
-    private static func setAutoMode(_ enabled: Bool, on connection: BoardConnection) async throws {
-        let mode = enabled ? "auto" : "manual"
-        guard (connection.status?.renderer?.mode == "auto") != enabled else { return }
-        let token = connection.output.begin(enabled ? .automatic : .manual)
-        try await connection.withOutput(token) { _ = try await connection.command(.setMode(mode: mode)) }
+    private func directOverride(for connection: BoardConnection?) -> DirectOverride? {
+        guard let connection, let entry = directOverrides[ObjectIdentifier(connection)],
+              Date() < entry.until else { return nil }
+        return entry
     }
 
-    private static func step(direction: Int, on connection: BoardConnection) async throws {
+    /// Runs a direct command with its outcome already showing: set before
+    /// the send, so a second command arriving mid-flight sees what the first
+    /// one asked for, and dropped again if the board refuses.
+    private func overriding(_ connection: BoardConnection, _ change: (inout DirectOverride) -> Void,
+                            operation: @MainActor () async throws -> Void) async throws {
+        let key = ObjectIdentifier(connection)
+        let now = Date()
+        directOverrides = directOverrides.filter { now < $0.value.until }
+        var entry = directOverrides[key] ?? DirectOverride()
+        change(&entry)
+        entry.until = now.addingTimeInterval(2)
+        directOverrides[key] = entry
+        do {
+            try await operation()
+        } catch {
+            directOverrides[key] = nil
+            throw error
+        }
+        // Nothing observable changes when the window closes; publish once
+        // more then, in case the board did not end up where it was told to.
+        directOverrideExpiry?.cancel()
+        directOverrideExpiry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.publish()
+        }
+    }
+
+    private func setAutoMode(_ enabled: Bool, on connection: BoardConnection) async throws {
+        let mode = enabled ? "auto" : "manual"
+        let current = directOverride(for: connection)?.mode ?? connection.status?.renderer?.mode
+        guard (current == "auto") != enabled else { return }
+        let token = connection.output.begin(enabled ? .automatic : .manual)
+        try await overriding(connection, { $0.mode = mode }) {
+            try await connection.withOutput(token) { _ = try await connection.command(.setMode(mode: mode)) }
+        }
+    }
+
+    private func step(direction: Int, on connection: BoardConnection) async throws {
         let token = connection.output.begin(.manual)
         if connection.status?.renderer?.firmwareScrollActive == true {
             try await connection.withOutput(token) {
@@ -511,7 +566,17 @@ final class WatchLinkService {
             }
         }
         let button = direction > 0 ? "B1" : "B2"
-        try await connection.withOutput(token) { _ = try await connection.command(.button(button: button)) }
+        let next: Int?
+        if let count = connection.status?.renderer?.autoFaceCount, count > 0 {
+            let current = directOverride(for: connection)?.faceIndex
+                ?? connection.status?.renderer?.autoFaceIndex ?? 0
+            next = ((current + direction) % count + count) % count
+        } else {
+            next = nil
+        }
+        try await overriding(connection, { if let next { $0.faceIndex = next } }) {
+            try await connection.withOutput(token) { _ = try await connection.command(.button(button: button)) }
+        }
     }
 
     /// Retunes a scroll already on the board without claiming its output —

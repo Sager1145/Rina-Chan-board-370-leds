@@ -45,6 +45,10 @@ final class BoardControlCenterModel {
     /// the value parses.
     var hexFieldText: String = "#ec3fc7"
     var hexFieldIsValid = true
+    /// True while the hex field has keyboard focus. Board status keeps
+    /// arriving then (auto mode, battery, other clients) and must not replace
+    /// what is being typed.
+    private(set) var hexFieldIsEditing = false
 
     /// The board-global colour the physical board is currently set to, with
     /// the app's fallback when the draft hex cannot be parsed.
@@ -171,8 +175,10 @@ final class BoardControlCenterModel {
         }
         if now >= colorTouchUntil, let hex = renderer.color {
             colorHexDraft = hex
-            hexFieldText = hex
-            hexFieldIsValid = true
+            if !hexFieldIsEditing {
+                hexFieldText = hex
+                hexFieldIsValid = true
+            }
             selectedParentId = colorPresets?.parent(containing: hex).map { String($0.id) }
         }
         if now >= modeOverrideUntil { modeOverride = nil }
@@ -301,6 +307,12 @@ final class BoardControlCenterModel {
     func hexFieldChanged(_ text: String) {
         hexFieldText = text
         hexFieldIsValid = text.isEmpty || RGBHex.parseHex(text) != nil
+    }
+
+    /// The hex field gained or lost keyboard focus. Text left uncommitted is
+    /// kept until the next board status replaces it, as before.
+    func hexFieldEditingChanged(_ editing: Bool) {
+        hexFieldIsEditing = editing
     }
 
     /// Commits the hex field, if and only if it currently parses.

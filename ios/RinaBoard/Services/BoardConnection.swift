@@ -247,6 +247,10 @@ public final class BoardConnection {
     private var establishmentError: String?
     private var reconnectDelay: (Int) -> TimeInterval = { min(30, pow(2, Double($0))) }
     private var handshakeTimeout: TimeInterval = 5
+    private var pingInterval: TimeInterval = 5
+    /// Event subscriptions that wait for one carrier's event (`wifiScan`).
+    /// `stopCarrier()` finishes them, since that event can no longer arrive.
+    private var carrierBoundEventSubscriptions: Set<UUID> = []
     private static let eventBufferLimit = 256
     private static let maxFacesDocumentBytes = 256 * 1024
 
@@ -284,9 +288,11 @@ public final class BoardConnection {
         installBrokerHooks()
     }
 
-    init(reconnectDelay: @escaping (Int) -> TimeInterval, handshakeTimeout: TimeInterval = 5) {
+    init(reconnectDelay: @escaping (Int) -> TimeInterval, handshakeTimeout: TimeInterval = 5,
+         pingInterval: TimeInterval = 5) {
         self.reconnectDelay = reconnectDelay
         self.handshakeTimeout = handshakeTimeout
+        self.pingInterval = pingInterval
         installBrokerHooks()
     }
 
@@ -369,18 +375,7 @@ public final class BoardConnection {
         decoder.reset()
         let states = transport.stateStream()
         let incoming = transport.incomingStream()
-        stateTask = Task { [weak self] in
-            for await state in states {
-                guard let self, !Task.isCancelled, self.transportSessionID == session else { return }
-                self.handleTransportState(state)
-            }
-        }
-        incomingTask = Task { [weak self] in
-            for await data in incoming {
-                guard let self, !Task.isCancelled, self.transportSessionID == session else { return }
-                await self.handleIncoming(data)
-            }
-        }
+        observeCarrier(states: states, incoming: incoming, session: session)
         do {
             try await transport.connect()
             try Task.checkCancellation()
@@ -500,6 +495,31 @@ public final class BoardConnection {
         }
     }
 
+    /// establish() can run in a task that still carries a producer's output
+    /// lease (a failed leased write, the blob cleanup). Carrier lifecycle tasks
+    /// must not inherit it: a lease dies with the old carrier, and a task bound
+    /// to a dead lease would tear down every later carrier. Synchronous so the
+    /// tasks are created inside the synchronous `withValue` scope.
+    private func observeCarrier(states: AsyncStream<TransportState>, incoming: AsyncStream<Data>,
+                                session: UUID) {
+        stateTask = BoardOutputContext.$session.withValue(nil) {
+            Task<Void, Never> { [weak self] in
+                for await state in states {
+                    guard let self, !Task.isCancelled, self.transportSessionID == session else { return }
+                    self.handleTransportState(state)
+                }
+            }
+        }
+        incomingTask = BoardOutputContext.$session.withValue(nil) {
+            Task<Void, Never> { [weak self] in
+                for await data in incoming {
+                    guard let self, !Task.isCancelled, self.transportSessionID == session else { return }
+                    await self.handleIncoming(data)
+                }
+            }
+        }
+    }
+
     /// Non-nil (a ready-to-show zh-Hans message) exactly when this is a
     /// `.hotspot` connect/reconnect with a known `expectedHotspotSSID` and the
     /// board's freshly-refreshed `wifi` snapshot positively disagrees with it.
@@ -522,6 +542,10 @@ public final class BoardConnection {
         stateTask?.cancel()
         incomingTask?.cancel()
         pingTask?.cancel()
+        for id in carrierBoundEventSubscriptions {
+            eventContinuations.removeValue(forKey: id)?.finish()
+        }
+        carrierBoundEventSubscriptions.removeAll()
         decoder.reset()
         broker.failAll(RinaTransportError.notConnected)
         transport?.disconnect()
@@ -616,18 +640,22 @@ public final class BoardConnection {
         }
         connectionState = .reconnecting(attempt: attempt)
         let session = transportSessionID
-        reconnectTask = Task { [weak self] in
-            guard let self else { return }
-            do { try await Task.sleep(for: .seconds(self.reconnectDelay(attempt))) }
-            catch { return }
-            guard !Task.isCancelled, self.transportSessionID == session else { return }
-            self.reconnectTask = nil
-            self.transport = candidate.transport
-            self.transportKind = candidate.transport.kind
-            self.expectedBoardIdentity = candidate.expectedBoardIdentity?.uppercased()
-            self.expectedHotspotSSID = candidate.transport.kind == .hotspot ? self.originalHotspotSSID : nil
-            self.isReconnectAttempt = true
-            _ = await self.establish(candidate.transport)
+        // connectionFailed() may be running in a task bound to an output lease
+        // of the carrier that just failed; see establish().
+        reconnectTask = BoardOutputContext.$session.withValue(nil) {
+            Task<Void, Never> { [weak self] in
+                guard let self else { return }
+                do { try await Task.sleep(for: .seconds(self.reconnectDelay(attempt))) }
+                catch { return }
+                guard !Task.isCancelled, self.transportSessionID == session else { return }
+                self.reconnectTask = nil
+                self.transport = candidate.transport
+                self.transportKind = candidate.transport.kind
+                self.expectedBoardIdentity = candidate.expectedBoardIdentity?.uppercased()
+                self.expectedHotspotSSID = candidate.transport.kind == .hotspot ? self.originalHotspotSSID : nil
+                self.isReconnectAttempt = true
+                _ = await self.establish(candidate.transport)
+            }
         }
     }
 
@@ -716,22 +744,31 @@ public final class BoardConnection {
         }
         pingTask?.cancel()
         let activeTransport = transport
-        pingTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                guard !Task.isCancelled else { return }
-                guard let self else { return }
-                // Exit if the connection's active transport has changed since
-                // this loop was started, rather than pinging a stale one.
-                guard self.transport === activeTransport else { return }
-                guard self.connectionState == .connected else { continue }
-                let session = self.transportSessionID
-                do {
-                    _ = try await self.send(type: .ping, payload: Data(), timeout: 5)
-                } catch {
-                    guard !Task.isCancelled, self.transportSessionID == session else { return }
-                    self.connectionFailed(error.localizedDescription)
-                    return
+        let interval = pingInterval
+        pingTask = BoardOutputContext.$session.withValue(nil) {
+            Task<Void, Never> { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(interval))
+                    guard !Task.isCancelled else { return }
+                    guard let self else { return }
+                    // Exit if the connection's active transport has changed since
+                    // this loop was started, rather than pinging a stale one.
+                    guard self.transport === activeTransport else { return }
+                    guard self.connectionState == .connected else { continue }
+                    let session = self.transportSessionID
+                    do {
+                        // The keep-alive probes the carrier, not an output
+                        // lease: it never goes through the leased `send`.
+                        _ = try await self.sendUnqueued(type: .ping, payload: Data(), timeout: 5,
+                                                        aggregateMore: true)
+                    } catch is CancellationError {
+                        // Raised locally without a verdict from the wire.
+                        continue
+                    } catch {
+                        guard !Task.isCancelled, self.transportSessionID == session else { return }
+                        self.connectionFailed(error.localizedDescription)
+                        return
+                    }
                 }
             }
         }
@@ -1791,7 +1828,13 @@ public final class BoardConnection {
         // (synchronous reply, timeout, or an EV_WIFI_SCAN match) — otherwise
         // the synchronous-reply fast path below would leak the continuation
         // in `eventContinuations` forever (it's never iterated in that case).
-        defer { eventContinuations.removeValue(forKey: subID) }
+        defer {
+            eventContinuations.removeValue(forKey: subID)
+            carrierBoundEventSubscriptions.remove(subID)
+        }
+        // A dropped carrier ends the wait below at once instead of holding
+        // the caller's scanning state until `eventTimeout`.
+        carrierBoundEventSubscriptions.insert(subID)
         let decoded: WifiScanReply = try await commandPump.run { @MainActor in
             try self.checkSubmission(generation: generation, carrier: carrier)
             return try await self.transact(RinaCommand.wifiScan)

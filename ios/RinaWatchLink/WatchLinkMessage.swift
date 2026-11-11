@@ -17,6 +17,10 @@ enum WatchLinkCodec {
     static let version = 1
     static let versionKey = "v"
     static let payloadKey = "rinaWatchLink"
+    /// Optional, watch → phone only: the target the watch was showing when
+    /// it sent a command. It sits beside the payload, so a build that does
+    /// not know the key simply ignores it.
+    static let targetKey = "target"
 
     static func encode<T: Encodable>(_ value: T) throws -> Data {
         let encoder = JSONEncoder()
@@ -31,8 +35,15 @@ enum WatchLinkCodec {
     }
 
     /// Wraps an encoded payload in the dictionary WatchConnectivity carries.
-    static func envelope(_ payload: Data) -> [String: Any] {
-        [versionKey: version, payloadKey: payload]
+    static func envelope(_ payload: Data, targetID: String? = nil) -> [String: Any] {
+        var envelope: [String: Any] = [versionKey: version, payloadKey: payload]
+        if let targetID { envelope[targetKey] = targetID }
+        return envelope
+    }
+
+    /// The target id a command's envelope carries, if its sender added one.
+    static func targetID(in envelope: [String: Any]) -> String? {
+        envelope[targetKey] as? String
     }
 
     /// The payload of an envelope, or `nil` when the dictionary is not ours

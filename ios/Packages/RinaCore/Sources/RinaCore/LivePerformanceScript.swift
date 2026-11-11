@@ -118,7 +118,9 @@ public enum LivePerformanceScriptParser {
         var keyframes: [LiveKeyframe] = []
         var lastFrame: Int?
 
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        // Not `separator: "\n"`: a CRLF pair is one Character ("\r\n") and
+        // would never match it, so a Windows-saved script parsed as one line.
+        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         for (offset, rawLine) in lines.enumerated() {
             let lineNumber = offset + 1
             let line = rawLine.trimmingCharacters(in: .whitespaces)

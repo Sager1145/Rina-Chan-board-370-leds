@@ -35,6 +35,13 @@ bool setMode(const char* input, bool persistSettings, bool takeOutputControl) {
     const String mode = normalizedMode(input);
     const String oldMode = runtimeState().mode;
     const bool settingsChanged = runtimeState().mode != mode;
+    // A scroll started from auto shows a transient "manual" while flash still
+    // holds "auto" (also during the blank before its deferred restore). An
+    // explicit manual then is a real change. Read before the stop below clears it.
+    const bool endsPendingAuto = mode == "manual" &&
+                                 (scrollSessionGetRestoreAuto() ||
+                                  (runtimeState().deferredFaceRestoreActive &&
+                                   runtimeState().deferredFaceRestoreAutoMode));
     bool changed = false;
     if (mode != "auto" && mode != "manual")
         return false;
@@ -78,7 +85,7 @@ bool setMode(const char* input, bool persistSettings, bool takeOutputControl) {
     }
     if (changed)
         touchRuntimeState();
-    if (persistSettings && settingsChanged)
+    if (persistSettings && (settingsChanged || endsPendingAuto))
         scheduleRuntimeSettingsSave();
     if (settingsChanged)
         RLOG_INFO("MODE", "event=change from=%s to=%s persist=%d", oldMode.c_str(), mode.c_str(), persistSettings ? 1 : 0);

@@ -104,6 +104,8 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
     private var connectContinuation: CheckedContinuation<Void, Error>?
     private var connectTimeoutTask: Task<Void, Never>?
     private var connectAttemptID = UUID()
+    /// The connect attempt whose saved-board fallback scan is running, if any.
+    private var resolverScanAttempt: UUID?
     private var connectSlot = BLEConnectAttemptSlot()
     private var isConnectInProgress: Bool { connectSlot.inProgressAttempt != nil }
     private let disconnectGate = BLEDisconnectGate()
@@ -422,9 +424,19 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
         }
 
         logger.info("Saved BLE peripheral is not cached; scanning for \(identifier.uuidString, privacy: .public)")
-        let ownsScan = !isScanning
-        if ownsScan { startScan() }
-        defer { if ownsScan { stopScan() } }
+        // The fallback scan belongs to this attempt. `disconnect()` stops it
+        // when it supersedes the attempt, so the replacement starts its own
+        // and this attempt's unwind cannot stop a scan it no longer owns.
+        if !isScanning {
+            startScan()
+            resolverScanAttempt = attempt
+        }
+        defer {
+            if resolverScanAttempt == attempt {
+                resolverScanAttempt = nil
+                stopScan()
+            }
+        }
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while ContinuousClock.now < deadline {
             try Task.checkCancellation()
@@ -641,6 +653,11 @@ public final class BLETransport: NSObject, @MainActor RinaTransport, @MainActor 
         // itself is left untouched: the underlying cancel may still be
         // genuinely in flight.
         disconnectGate.wakeAllWaiters()
+        if resolverScanAttempt != nil {
+            // The superseded attempt's saved-board fallback scan ends with it.
+            resolverScanAttempt = nil
+            stopScan()
+        }
         clearConnectionTarget()
         if let peripheral {
             gateRecovery.onAbandon(id: peripheral.identifier)
@@ -815,16 +832,19 @@ extension BLETransport: CBCentralManagerDelegate {
             let resolved = (name?.isEmpty == false) ? name : nil
             discoveredPeripheralObjects[peripheral.identifier] = peripheral
 
+            // A packet without an RSSI sample keeps the row's last value; a
+            // board first seen that way gets its row from the next packet.
+            let rssi = Self.normalizedRSSI(RSSI)
             if let existing = discoveredPeripherals.first(where: { $0.id == peripheral.identifier }) {
-                existing.rssi = RSSI.intValue
+                if let rssi { existing.rssi = rssi }
                 existing.lastSeen = Date()
                 // Keep the last good name: some advertisement packets carry the
                 // service UUID only, and blanking the row would make it flicker.
                 if let resolved { existing.advertisedName = resolved }
-            } else {
+            } else if let rssi {
                 discoveredPeripherals.append(
-                    DiscoveredPeripheral(id: peripheral.identifier, advertisedName: resolved, rssi: RSSI.intValue))
-                logger.info("Discovered Rina board \(peripheral.identifier.uuidString, privacy: .public) name=\(resolved ?? "unnamed", privacy: .public) RSSI=\(RSSI.intValue)")
+                    DiscoveredPeripheral(id: peripheral.identifier, advertisedName: resolved, rssi: rssi))
+                logger.info("Discovered Rina board \(peripheral.identifier.uuidString, privacy: .public) name=\(resolved ?? "unnamed", privacy: .public) RSSI=\(rssi)")
             }
             sortDiscovered()
 

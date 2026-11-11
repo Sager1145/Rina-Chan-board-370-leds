@@ -199,6 +199,8 @@ struct ClientSlot {
     bool haveChargingSent = false;
     bool lastChargingSent = false;
     bool wifiEventPending = false;
+    // This client is owed the finished wifi_scan result (EV_WIFI_SCAN).
+    bool wifiScanEventPending = false;
 
     BlobSession blob;
 };
@@ -222,9 +224,10 @@ static bool clientActive(const ClientSlot& c) {
 // Only one client may hold an in-progress "scroll" blob upload at a time (item 10).
 static int g_activeScrollBlobSlot = -1;
 
-// Pending wifi_scan requester (item 4): only one scan can be in flight.
+// Pending wifi_scan requester (item 4): only one scan can be in flight. Stays set
+// until the requester has received its EV_WIFI_SCAN (or disconnected). Delivery is
+// tracked per client in ClientSlot::wifiScanEventPending.
 static int g_wifiScanRequesterSlot = -1;
-static bool g_wifiScanEventPending = false;
 
 // EV_LOG ring (item 9): filled from any task via the serial_log sink, drained on
 // the loop task by serviceProtocolEvents().
@@ -318,7 +321,7 @@ static bool emitJson(ClientSlot& c, uint8_t type, uint8_t seq, uint8_t flags, Js
     const size_t required = measureJson(doc);
     if (doc.overflowed() || required >= kScratchCap) {
         if (isEvent) return false;
-        static const char error[] = "{\"code\":507,\"error\":\"JSON response exceeds capacity\"}";
+        static const char error[] = "{\"ok\":false,\"code\":507,\"error\":\"JSON response exceeds capacity\"}";
         return sendFrame(c, msg::ERR, seq, 0,
                          reinterpret_cast<const uint8_t*>(error), sizeof(error) - 1);
     }
@@ -567,7 +570,7 @@ static void handleWifiCmd(ClientSlot& c, uint8_t seq, const char* cmd, JsonDocum
         DynamicJsonDocument out(128);
         out["ok"] = ok;
         if (!ok)
-            out["error"] = "ssid required";
+            out["error"] = "invalid ssid or password";
         sendJsonReply(c, msg::CMD, seq, out);
     } else if (strcmp(cmd, "wifi_clear_credentials") == 0) {
         wifiManagerClearCredentials(c.carrier == Carrier::Tcp);
@@ -579,7 +582,7 @@ static void handleWifiCmd(ClientSlot& c, uint8_t seq, const char* cmd, JsonDocum
         DynamicJsonDocument out(128);
         out["ok"] = ok;
         if (!ok)
-            out["error"] = "ssid required";
+            out["error"] = "invalid ssid or password";
         sendJsonReply(c, msg::CMD, seq, out);
     } else if (strcmp(cmd, "wifi_clear_hotspot_credentials") == 0) {
         wifiManagerClearHotspotCredentials(c.carrier == Carrier::Tcp);
@@ -753,15 +756,23 @@ static void mutateFacesDocument(ClientSlot& c, uint8_t seq, const char* cmdName,
 
     const size_t count = doc["faces"].as<JsonArray>().size();
     DynamicJsonDocument out(replyFaceId ? 3072 : 160);
-    out["ok"] = true;
-    out["v"] = runtimeStateVersion();
-    out["gen"] = savedFacesGeneration();
-    out["count"] = count;
+    auto fillSummary = [&]() {
+        out["ok"] = true;
+        out["v"] = runtimeStateVersion();
+        out["gen"] = savedFacesGeneration();
+        out["count"] = count;
+    };
+    fillSummary();
     if (replyFaceId) {
         addStoredFace(out.createNestedObject("face"), doc.as<JsonVariant>(), *replyFaceId);
         // A record padded with unknown fields can outgrow the reply; a partial
         // copy must not be mistaken for the stored face (clients read back).
-        if (out.overflowed()) out.remove("face");
+        // remove() would leave the overflow flag set and turn this committed
+        // write into ERR 507, so start the reply over without `face`.
+        if (out.overflowed()) {
+            out.clear();
+            fillSummary();
+        }
     }
     sendJsonReply(c, msg::CMD, seq, out);
 }
@@ -1415,8 +1426,13 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
     } else if (strcmp(cmd, "resume") == 0) {
         scrollSessionRewindIfEnded();
         scrollSessionSetUserPaused(false);
-        runtimeState().paused = false;
-        runtimeState().playback = DEFAULT_PLAYBACK;
+        // A firmware scroll owns paused/playback: the call above has just set
+        // them ("scroll", or "scroll_paused" while a system pause remains).
+        if (!runtimeState().firmwareScrollActive && !runtimeState().firmwareScrollPaused) {
+            runtimeState().paused = false;
+            if (runtimeState().playback == "paused")
+                runtimeState().playback = isAutoMode() ? "auto_saved_face" : DEFAULT_PLAYBACK;
+        }
         touchRuntimeState();
     } else if (strcmp(cmd, "apply_saved_face") == 0) {
         // A saved face `id` (when present) pins the apply to a specific face
@@ -1453,6 +1469,11 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
                         cstr(d, p, "playback", DEFAULT_PLAYBACK));
                 }
             }
+        } else if (!ensureSavedFacesLoaded()) {
+            // Reject before the scroll/mode changes below, as the id form does.
+            ok = false;
+            errCode = 503;
+            err = "saved faces unavailable";
         } else {
             stopFirmwareScroll(false, false, false);
             setMode("manual", false);
@@ -1475,8 +1496,13 @@ static void handleCmd(ClientSlot& c, uint8_t seq, const uint8_t* payload, uint16
         ok = runButtonAction(buttonCode, "rinalink");
     }
     else if (strcmp(cmd, "terminate_other_activities") == 0) {
-        stopFirmwareScroll(false, true, false);
-        setMode(cstr(d, p, "targetMode", "manual"), false);
+        // setMode validates targetMode before changing anything (and stops an
+        // active scroll itself), so an unknown mode is rejected with no effect.
+        ok = setMode(cstr(d, p, "targetMode", "manual"), false);
+        if (ok)
+            stopFirmwareScroll(false, true, false);
+        else
+            err = "invalid targetMode";
     } else if (strcmp(cmd, "reset_battery_min") == 0)
         resetBatteryVoltageMinimum();
     else if (strcmp(cmd, "reset_battery_max") == 0)
@@ -2564,8 +2590,20 @@ static void serviceProtocolEvents() {
                 client.wifiEventPending = true;
         }
     }
-    if (wifiScanReady)
-        g_wifiScanEventPending = true;
+    if (wifiScanReady) {
+        // Sent once to the requester, or to every connected client if the
+        // requester has since disconnected (§3.5).
+        const int slot = g_wifiScanRequesterSlot;
+        if (slot >= 0 && slot < MAX_CLIENTS && clientActive(g_clients[slot])) {
+            g_clients[slot].wifiScanEventPending = true;
+        } else {
+            g_wifiScanRequesterSlot = -1;
+            for (auto& client : g_clients) {
+                if (clientActive(client))
+                    client.wifiScanEventPending = true;
+            }
+        }
+    }
 
     // Drain the EV_LOG ring (item 9): copy out under the lock, then fan out to
     // subscribed clients without holding it.
@@ -2594,30 +2632,25 @@ static void serviceProtocolEvents() {
         }
     }
 
-    if (g_wifiScanEventPending) {
+    // A dropped send (back-pressure) is retried for that client only; clients
+    // that already received the result never get it again.
+    bool wifiScanOwed = false;
+    for (auto& client : g_clients)
+        wifiScanOwed = wifiScanOwed || (clientActive(client) && client.wifiScanEventPending);
+    if (wifiScanOwed) {
         DynamicJsonDocument out(2560);
         out["ok"] = true;
         JsonArray arr = out.createNestedArray("networks");
         wifiManagerGetScanJson(arr);
-        int slot = g_wifiScanRequesterSlot;
-        bool sentToRequester = false;
-        if (slot >= 0 && slot < MAX_CLIENTS && clientActive(g_clients[slot])) {
-            sentToRequester = sendEvent(g_clients[slot], msg::EV_WIFI_SCAN, out);
-        }
-        if (!sentToRequester) {
-            bool anyRecipient = false;
-            bool allSent = true;
-            for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
-                if (clientActive(g_clients[i])) {
-                    anyRecipient = true;
-                    allSent = sendEvent(g_clients[i], msg::EV_WIFI_SCAN, out) && allSent;
-                }
+        for (uint8_t i = 0; i < MAX_CLIENTS; i++) {
+            ClientSlot& sc = g_clients[i];
+            if (!clientActive(sc) || !sc.wifiScanEventPending)
+                continue;
+            if (sendEvent(sc, msg::EV_WIFI_SCAN, out)) {
+                sc.wifiScanEventPending = false;
+                if (g_wifiScanRequesterSlot == static_cast<int>(i))
+                    g_wifiScanRequesterSlot = -1;
             }
-            sentToRequester = anyRecipient && allSent;
-        }
-        if (sentToRequester) {
-            g_wifiScanRequesterSlot = -1;
-            g_wifiScanEventPending = false;
         }
     }
 
@@ -2680,7 +2713,6 @@ static void serviceProtocolEvents() {
 
 void protocolBegin() {
     g_wifiScanRequesterSlot = -1;
-    g_wifiScanEventPending = false;
     for (auto& c : g_clients)
         c = ClientSlot{};
     // Item 14: pre-allocate every slot's inbound buffer eagerly here (loop task,
@@ -2732,9 +2764,20 @@ static void resetSlotSessionState(ClientSlot& c, bool clearInbound = true) {
     c.haveChargingSent = false;
     c.lastChargingSent = false;
     c.wifiEventPending = false;
+    const bool wifiScanOwed = c.wifiScanEventPending;
+    c.wifiScanEventPending = false;
     int selfSlot = static_cast<int>(&c - g_clients);
-    if (g_wifiScanRequesterSlot == selfSlot)
+    if (g_wifiScanRequesterSlot == selfSlot) {
         g_wifiScanRequesterSlot = -1;
+        // The requester left before its finished scan result was delivered:
+        // hand it to the clients that are still connected.
+        if (wifiScanOwed) {
+            for (auto& other : g_clients) {
+                if (&other != &c && clientActive(other))
+                    other.wifiScanEventPending = true;
+            }
+        }
+    }
 }
 
 static void finalizePendingRegistryChanges() {

@@ -21,9 +21,12 @@ static RinaLogSink sLogSink = nullptr;
 
 // Both physical sinks get an independent bounded FIFO. Log traffic may use
 // only the non-reserved portion; console replies can consume the reserve so a
-// `status` response remains observable during a TRACE burst.
-static constexpr size_t SERIAL_TX_QUEUE_BYTES = 2048;
-static constexpr size_t SERIAL_TX_CONSOLE_RESERVE = 768;
+// `status` response remains observable during a TRACE burst. The reserve
+// covers one whole `status` reply (about 1.4 KB plus one line per AP peer),
+// which is queued back to back with almost no drain in between; the log share
+// stays at 1280 bytes.
+static constexpr size_t SERIAL_TX_QUEUE_BYTES = 3072;
+static constexpr size_t SERIAL_TX_CONSOLE_RESERVE = 1792;
 static constexpr size_t SERIAL_TX_PUMP_BUDGET = 128;
 
 struct SerialTxQueue {

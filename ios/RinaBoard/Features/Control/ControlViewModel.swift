@@ -193,6 +193,11 @@ final class ControlViewModel {
         var expectedGen: Int?
         var canOverwrite: Bool?
         var pendingSave: PendingBoardSave?
+        /// Whether the user had touched the editor. `false` marks a frame
+        /// merely mirrored from the board (or the untouched default), which
+        /// must come back as such; absent (older drafts) decodes to `nil`
+        /// and is treated as edited, as every draft was before this field.
+        var userEdited: Bool?
     }
 
     static func hasPendingSave(in storage: DraftStorage) async throws -> Bool {
@@ -213,7 +218,8 @@ final class ControlViewModel {
             let draft = try JSONDecoder().decode(Draft.self, from: data)
             guard draft.version == 1, let frame = PackedFrame(hex94: draft.frame) else { return }
             draftFrame = frame; saveName = draft.name; fromParts = draft.fromParts
-            selectedCall = draft.call; userHasEdited = true
+            let userEdited = draft.userEdited ?? true
+            selectedCall = draft.call; userHasEdited = userEdited
             editingLocation = draft.boardFaceID != nil ? .board : .local
             editingFaceId = draft.boardFaceID ?? draft.localFaceID
             editingBoardID = draft.boardID
@@ -228,7 +234,9 @@ final class ControlViewModel {
             } else {
                 editingBaseline = nil
             }
-            lastSentFrame = PackedFrame()
+            // An untouched editor has no unsent changes, so the board's
+            // display can still populate it after a relaunch.
+            lastSentFrame = userEdited ? PackedFrame() : frame
             resetUndoHistory()
         } catch {
             draftStorageError = String(
@@ -274,7 +282,8 @@ final class ControlViewModel {
                           boardFaceID: editingLocation == .board ? editingFaceId : nil,
                           boardGeneration: editingBoardGeneration,
                           expectedBootId: editingExpectedBootId, expectedGen: editingExpectedGen,
-                          canOverwrite: editingFaceCanOverwrite, pendingSave: pendingBoardSave)
+                          canOverwrite: editingFaceCanOverwrite, pendingSave: pendingBoardSave,
+                          userEdited: userHasEdited)
         do {
             let data = try JSONEncoder().encode(draft)
             try await draftStorage.write(data, name: "face")
@@ -1311,9 +1320,10 @@ final class ControlViewModel {
         }
     }
 
-    /// Populate only a never-edited editor from the board. A restored or sent
-    /// draft remains user-owned even when it has no unsent changes: the board
-    /// may be showing text, automatic faces, or another producer's frame.
+    /// Populate only a never-edited editor from the board. A sent draft, or a
+    /// restored one the user had edited, remains user-owned even when it has
+    /// no unsent changes: the board may be showing text, automatic faces, or
+    /// another producer's frame.
     func adoptBoardFrameIfUntouched(_ frame: PackedFrame) {
         guard !userHasEdited, !hasUnsentChanges else { return }
         let changed = draftFrame != frame

@@ -11,6 +11,9 @@ import WatchConnectivity
 @MainActor
 final class WatchSessionModel {
     private(set) var snapshot: WatchBoardSnapshot?
+    /// The last snapshot the phone actually sent, without the optimistic
+    /// edits `selectTarget`/`setAutoMode`/`setColor` make to `snapshot`.
+    @ObservationIgnored private var confirmedSnapshot: WatchBoardSnapshot?
     private(set) var isReachable = false
     private(set) var isActivated = false
     /// A failure reported by the phone for the last command, or a local
@@ -49,7 +52,7 @@ final class WatchSessionModel {
         guard session == nil else { return }
         let session = WCSession.default
         self.session = session
-        relay.onPayload = { [weak self] data, reply in
+        relay.onPayload = { [weak self] data, _, reply in
             reply?(Data())
             Task { @MainActor in self?.apply(data) }
         }
@@ -99,6 +102,7 @@ final class WatchSessionModel {
     private func apply(_ data: Data) {
         guard let snapshot = try? WatchLinkCodec.decode(WatchBoardSnapshot.self, from: data) else { return }
         self.snapshot = snapshot
+        confirmedSnapshot = snapshot
         let now = Date()
         if now >= (touchUntil[.brightness] ?? .distantPast) {
             brightness = Double(snapshot.controls.brightnessRaw)
@@ -125,13 +129,20 @@ final class WatchSessionModel {
     /// while the phone is out of reach — the status row already says so, and
     /// a queued command arriving minutes later would be a surprise.
     func send(_ command: WatchCommand) {
-        guard let session, session.activationState == .activated else { return }
+        guard let session, session.activationState == .activated else {
+            revertOptimisticState()
+            return
+        }
         guard session.isReachable else {
             isReachable = false
+            revertOptimisticState()
             return
         }
         guard let data = try? WatchLinkCodec.encode(command) else { return }
-        session.sendMessage(WatchLinkCodec.envelope(data), replyHandler: { [weak self] reply in
+        // The target on screen rides along, so the phone can drop a command
+        // aimed at a board it has since stopped offering.
+        let envelope = WatchLinkCodec.envelope(data, targetID: snapshot?.selectedTargetID)
+        session.sendMessage(envelope, replyHandler: { [weak self] reply in
             guard let payload = WatchLinkCodec.payload(in: reply) else { return }
             Task { @MainActor in self?.apply(payload) }
         }, errorHandler: { [weak self] error in
@@ -141,8 +152,19 @@ final class WatchSessionModel {
                 self.isReachable = self.session?.isReachable ?? false
                 if case .requestState = command { return }
                 self.errorMessage = message
+                self.revertOptimisticState()
+                // The phone may have run it all the same (a reply timeout):
+                // ask rather than guess.
+                if self.isReachable { self.refresh() }
             }
         })
+    }
+
+    /// Takes back what a command showed ahead of its reply, once it is known
+    /// that no reply will come.
+    private func revertOptimisticState() {
+        guard let confirmedSnapshot, snapshot != confirmedSnapshot else { return }
+        snapshot = confirmedSnapshot
     }
 
     func selectTarget(_ id: String) {
@@ -219,6 +241,9 @@ final class WatchSessionModel {
 
 /// Sends the newest value at most once per `interval`, so a crown spin does
 /// not turn into a message per tick. The first value goes immediately.
+/// Repeats are skipped only within one burst: once the sender has gone idle
+/// the board may have been changed from elsewhere (or the send dropped), so
+/// the same value must be sendable again.
 @MainActor
 final class WatchCoalescedSender<Value: Equatable & Sendable> {
     private let interval: Duration
@@ -249,6 +274,7 @@ final class WatchCoalescedSender<Value: Equatable & Sendable> {
                 }
                 try? await Task.sleep(for: self.interval)
             }
+            self?.lastSent = nil
             self?.drain = nil
         }
     }

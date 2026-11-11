@@ -232,6 +232,16 @@ final class TextViewModel {
         await seek(toFrame: commit.frameIndex, connection: connection)
     }
 
+    /// A slider value change that no drag brackets (a keyboard adjust goes
+    /// through the value setter alone) is a complete gesture: seek to it, and
+    /// never leave `scrubIndex` set when the seek could not be sent.
+    func commitUnbracketedScrub(connection: BoardConnection) async {
+        guard !isScrubbing, let index = scrubIndex else { return }
+        let generation = scrubGeneration
+        await seek(toFrame: index, connection: connection)
+        if generation == scrubGeneration, !isScrubbing { scrubIndex = nil }
+    }
+
     func cancelScrub() {
         scrubGeneration += 1
         isScrubbing = false
@@ -449,7 +459,6 @@ final class TextViewModel {
             guard revision == uploadRevision, !Task.isCancelled else { return }
             if let token = BoardOutputContext.session { try connection.output.check(token) }
             uploadProgress = 0.34
-            timeline = built
 
             localPhase = "UPLOADING"
             uploadProgress = 0.36
@@ -496,6 +505,9 @@ final class TextViewModel {
             uploadProgress = 0.90
             localPhase = "STARTING"
             let boundId = reply.timelineId ?? built.timelineId
+            // Only now, with the board's reply: a failed upload must leave the
+            // preview and the restore retry describing what the board shows.
+            timeline = built
             boundTimelineId = boundId
             pll = ScrollPreviewController(frameCount: built.frameCount, userFps: Double(fpsInt))
             pll.bind(timelineId: boundId, frameCount: built.frameCount)

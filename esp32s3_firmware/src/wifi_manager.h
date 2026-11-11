@@ -26,8 +26,12 @@ void wifiManagerGetStatusJson(JsonObject out);
 bool wifiManagerStartScan();
 bool wifiManagerScanInProgress();
 bool wifiManagerScanResultReady();
+// Networks whose SSID is not well-formed UTF-8 (or holds control bytes) are
+// left out so the JSON reply stays decodable.
 void wifiManagerGetScanJson(JsonArray out);
 
+// Rejects (returns false, nothing stored) an empty or > 32-byte SSID and a
+// non-empty password outside 8..64 bytes; same for the hotspot profile.
 bool wifiManagerSetCredentials(const String& ssid, const String& password);
 // Forget this profile from manager/driver NVS and disconnect it if active or
 // connecting. Preserve the other station profile, requested mode, AP and BLE.

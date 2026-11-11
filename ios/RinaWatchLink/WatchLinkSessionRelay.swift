@@ -10,8 +10,9 @@ final class WatchLinkSessionRelay: NSObject, WCSessionDelegate, @unchecked Senda
     typealias Reply = @Sendable (Data) -> Void
 
     /// A message (a command on the phone, a pushed snapshot on the watch).
+    /// `targetID` is the envelope's `WatchLinkCodec.targetKey`, when present;
     /// `reply` is non-nil only when the sender is waiting for an answer.
-    var onPayload: (@Sendable (Data, Reply?) -> Void)?
+    var onPayload: (@Sendable (_ data: Data, _ targetID: String?, _ reply: Reply?) -> Void)?
     /// The watch side: the latest `applicationContext` the phone published.
     var onContext: (@Sendable (Data) -> Void)?
     /// Activation, reachability, and (on iOS) pairing/install changes.
@@ -41,7 +42,7 @@ final class WatchLinkSessionRelay: NSObject, WCSessionDelegate, @unchecked Senda
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         guard let data = WatchLinkCodec.payload(in: message) else { return }
-        onPayload?(data, nil)
+        onPayload?(data, WatchLinkCodec.targetID(in: message), nil)
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any],
@@ -54,7 +55,9 @@ final class WatchLinkSessionRelay: NSObject, WCSessionDelegate, @unchecked Senda
         // WatchConnectivity's queue; it is only ever invoked once, from the
         // wrapper below, which is what makes this unsafe-capture sound.
         nonisolated(unsafe) let handler = replyHandler
-        onPayload?(data) { reply in handler(WatchLinkCodec.envelope(reply)) }
+        onPayload?(data, WatchLinkCodec.targetID(in: message)) { reply in
+            handler(WatchLinkCodec.envelope(reply))
+        }
     }
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {

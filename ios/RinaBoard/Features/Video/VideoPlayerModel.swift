@@ -279,6 +279,14 @@ final class VideoPlayerModel {
             restoreTask = task
             await task?.value
             restoreTask = nil
+            // The played file is gone but a later import is still stored.
+            // Load it passively here: the page's own restore is already
+            // blocked by `didRestore`.
+            if task == nil, player == nil, let fallback = makeRestoreTask() {
+                restoreTask = fallback
+                await fallback.value
+                restoreTask = nil
+            }
         }
 
         guard !Task.isCancelled,
@@ -315,7 +323,14 @@ final class VideoPlayerModel {
         guard let name = requestedName ?? defaults.string(forKey: Self.fileKey) else { return nil }
         let url = store.storedURL(named: name)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            forgetStoredVideo()
+            // A missing playback file only invalidates the playback
+            // checkpoint: a video imported after it (and never played) is
+            // still named by `fileKey` and must survive.
+            if requestedName == nil || name == defaults.string(forKey: Self.fileKey) {
+                forgetStoredVideo()
+            } else {
+                forgetPlaybackCheckpoint()
+            }
             return nil
         }
         let restoredTitle = defaults.string(forKey: Self.titleKey)
@@ -481,6 +496,10 @@ final class VideoPlayerModel {
     private func forgetStoredVideo() {
         defaults.removeObject(forKey: Self.fileKey)
         defaults.removeObject(forKey: Self.titleKey)
+        forgetPlaybackCheckpoint()
+    }
+
+    private func forgetPlaybackCheckpoint() {
         defaults.removeObject(forKey: Self.playbackFileKey)
         defaults.removeObject(forKey: Self.playbackPositionKey)
         defaults.removeObject(forKey: Self.playbackStreamKey)
@@ -505,6 +524,11 @@ final class VideoPlayerModel {
 
     func play(connection: BoardConnection) {
         playbackStartTask?.cancel()
+        // Unmuting restarts a video that is already playing, so the frame
+        // loop is still ticking while the start below waits for the audio
+        // session. Disarm the system-pause check in `tick()` first, or it
+        // takes this pause for one and cancels the restart.
+        playbackClockStarted = false
         player?.pause()
         deactivateSessionIfNeeded()
         playbackStartTask = Task { [weak self] in
@@ -527,7 +551,12 @@ final class VideoPlayerModel {
         lastConnection = connection
         // Audio first: taking the board stops whichever feature holds it, and
         // that must not happen for a start that is about to fail.
-        if !isMuted, !(await activateSessionIfNeeded()) { return }
+        if !isMuted, !(await activateSessionIfNeeded()) {
+            // A restart of a running video (unmute) left the player paused;
+            // without audio it stays paused, so stop claiming playback.
+            if !Task.isCancelled, isPlaying { pause() }
+            return
+        }
         guard !Task.isCancelled else {
             deactivateSessionIfNeeded()
             return

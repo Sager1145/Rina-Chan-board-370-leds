@@ -50,9 +50,14 @@ class TcpTransport final : public ITransport {
         const uint32_t startedMs = millis();
         const auto logFailure = [&](const char* reason, size_t bytesSent, int socket,
                                     int sendErrno, bool connected, bool deadline) {
+            // A wholly unsent event is expected back-pressure and is counted in
+            // g_droppedEvents by the caller. It must not be logged: every log
+            // line becomes an EV_LOG, so a stalled log subscriber would turn
+            // each dropped event into the next one (the BLE carrier does the same).
+            if (isEvent && bytesSent == 0)
+                return;
             // Header: magic, type, sequence, flags, little-endian payload size.
-            // A wholly unsent event is expected back-pressure and stays DEBUG.
-            RLOG_AT(!isEvent || bytesSent > 0 ? RINA_LOG_WARN : RINA_LOG_DEBUG, "TCP",
+            RLOG_AT(RINA_LOG_WARN, "TCP",
                     "event=send_failed reason=%s slot=%u fd=%d errno=%d connected=%d deadline=%d deadline_ms=250 sent=%u total=%u is_event=%d type=%u seq=%u flags=%u elapsed_ms=%lu",
                     reason, static_cast<unsigned>(id.slot), socket, sendErrno,
                     connected ? 1 : 0, deadline ? 1 : 0,

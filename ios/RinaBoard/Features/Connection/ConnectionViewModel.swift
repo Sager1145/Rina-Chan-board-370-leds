@@ -668,7 +668,10 @@ public final class ConnectionViewModel {
     private func wifiHost(for session: BoardSession, boardStore: BoardStore) -> String? {
         if session.connection.wifi?.staConnected == true,
            let ip = session.connection.wifi?.ip, !ip.isEmpty { return ip }
-        if case .wifi(let host, _) = session.connection.transportKind { return host }
+        // A Bonjour or saved-board connection carries a storage label here,
+        // not an address; never offer that as a host to dial.
+        if case .wifi(let host, _) = session.connection.transportKind,
+           BoardSession.isDialableHost(host) { return host }
         let identifiers = Set(session.knownIdentifiers)
         return boardStore.boards.filter {
             identifiers.contains($0.id)

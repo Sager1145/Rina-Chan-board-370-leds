@@ -295,7 +295,10 @@ static void serviceBatteryCalibrationSave(uint32_t now) {
         return;
     if (!millisElapsed(now, powerStatus.batteryCalibDirtySinceMs, BATTERY_CALIB_SAVE_DELAY_MS))
         return;
-    saveBatteryCalibration(now);
+    // A failed save stays dirty; restart the delay so a failing filesystem is
+    // retried every BATTERY_CALIB_SAVE_DELAY_MS, not on every loop pass.
+    if (!saveBatteryCalibration(now))
+        powerStatus.batteryCalibDirtySinceMs = now;
 }
 
 static bool batteryHasPoweredVoltage() {
@@ -497,7 +500,10 @@ static void sampleBattery(uint32_t now, uint16_t adcMv) {
         const uint8_t rawPct = batteryPercentFromVoltage(nextVbat);
         const int16_t delta = static_cast<int16_t>(rawPct) -
                               static_cast<int16_t>(powerStatus.batteryPercent);
-        if (!powerStatus.batteryValid || delta > 1 || delta < -1) {
+        // The percent saturates at 0 and 100, so a remaining step of 1 into
+        // either end can never grow to 2; accept it there.
+        const bool reachesEnd = (rawPct == 0 || rawPct == 100) && delta != 0;
+        if (!powerStatus.batteryValid || delta > 1 || delta < -1 || reachesEnd) {
             nextPercent = rawPct;
         }
     }
